@@ -1,108 +1,63 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getDatabase, ref, set, get, push, onValue, query, orderByChild, limitToLast, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
-import { firebaseConfig } from "./firebase-config.js";
-
-const app=initializeApp(firebaseConfig), auth=getAuth(app), db=getDatabase(app);
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,onAuthStateChanged,signOut,updateProfile} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {getDatabase,ref,set,get,push,onValue,query,orderByChild,limitToLast,runTransaction} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+import {firebaseConfig} from "./firebase-config.js";
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getDatabase(app);
 const $=id=>document.getElementById(id);
-let confirmation=null, verifier=null, currentUser=null, activeChatId=null, activeChat=null, stopMessages=null, stopChats=null, chatsCache={};
-const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-function toast(s){$("toast").textContent=s;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2600)}
-function showAuthMessage(s,error=true){$("authMessage").textContent=s;$("authMessage").style.color=error?"#ffb9c2":"#8de7c5"}
-function resetVerifier(){
-  if(verifier){try{verifier.clear()}catch(_){} verifier=null;}
-  $("recaptcha-container").innerHTML="";
+let mode="login",me=null,chatMap={},activeId=null,activeChat=null,stopChats=null,stopMsgs=null;
+const clean=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const keyOf=s=>s.trim().toLowerCase();
+const usernameOK=s=>/^[a-zA-Z0-9_.]{3,20}$/.test(s);
+function toast(s){$("toast").textContent=s;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2500)}
+function authMsg(s,bad=true){$("authMsg").textContent=s;$("authMsg").style.color=bad?"#ffb9c2":"#8de7c5"}
+function setMode(v){mode=v;$("loginTab").classList.toggle("active",v==="login");$("registerTab").classList.toggle("active",v==="register");$("nameWrap").classList.toggle("hidden",v!=="register");$("usernameWrap").classList.toggle("hidden",v!=="register");$("authBtn").textContent=v==="login"?"تسجيل الدخول":"إنشاء حساب";authMsg("")}
+$("loginTab").onclick=()=>setMode("login");$("registerTab").onclick=()=>setMode("register");
+function friendly(e){const m={"auth/email-already-in-use":"البريد مستخدم بالفعل.","auth/invalid-email":"البريد الإلكتروني غير صحيح.","auth/weak-password":"كلمة المرور يجب أن تكون 6 أحرف على الأقل.","auth/user-not-found":"لا يوجد حساب بهذا البريد.","auth/wrong-password":"كلمة المرور غير صحيحة.","auth/invalid-credential":"البريد أو كلمة المرور غير صحيحة.","auth/operation-not-allowed":"فعّل Email/Password من Firebase Authentication.","auth/unauthorized-domain":"أضف دومين الموقع إلى Authorized domains.","auth/too-many-requests":"محاولات كثيرة، حاول لاحقًا."};return (m[e.code]||"حدث خطأ أثناء تسجيل الدخول.")+"\n"+e.code}
+async function claimUsername(username,uid){
+ const k=keyOf(username),r=ref(db,"usernameIndex/"+k);
+ const result=await runTransaction(r,current=>current===null?uid:undefined);
+ return result.committed;
 }
-function normalizePhone(value){
-  let p=value.replace(/[\s()-]/g,"");
-  if(/^01\d{9}$/.test(p)) p="+2"+p; // Egyptian local mobile: 01xxxxxxxxx -> +201xxxxxxxxx
-  else if(/^20\d{10}$/.test(p)) p="+"+p;
-  return p;
-}
-function makeVerifier(){
-  if(!verifier){
-    verifier=new RecaptchaVerifier(auth,"recaptcha-container",{size:"normal"});
-  }
-  return verifier;
-}
-$("sendCodeBtn").onclick=async()=>{
-  const phone=normalizePhone($("phoneInput").value.trim());
-  if(!/^\+[1-9]\d{7,14}$/.test(phone)){
-    showAuthMessage("رقم الهاتف غير صحيح. اكتب رقمًا مصريًا مثل 01270178005 أو دوليًا مثل +201270178005");
-    return;
-  }
-  $("sendCodeBtn").disabled=true;
-  showAuthMessage("جاري تجهيز التحقق وإرسال كود SMS...",false);
-  try{
-    const captcha=makeVerifier();
-    confirmation=await signInWithPhoneNumber(auth,phone,captcha);
-    $("otpPanel").classList.remove("hidden");
-    showAuthMessage("تم إرسال كود التحقق إلى "+phone,false);
-  }catch(e){
-    console.error("EGYPT CHAT phone auth error:",e);
-    showAuthMessage(authError(e));
-    resetVerifier();
-  }finally{
-    $("sendCodeBtn").disabled=false;
-  }
+$("authBtn").onclick=async()=>{
+ const email=$("emailInput").value.trim().toLowerCase(),pass=$("passwordInput").value;
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return authMsg("اكتب بريدًا إلكترونيًا صحيحًا");
+ if(pass.length<6)return authMsg("كلمة المرور لازم تكون 6 أحرف على الأقل");
+ $("authBtn").disabled=true;authMsg("جاري تنفيذ الطلب...",false);
+ try{
+  if(mode==="register"){
+   const name=$("nameInput").value.trim(),username=$("usernameInput").value.trim();
+   if(!name)throw new Error("اكتب اسم العرض.");
+   if(!usernameOK(username))throw new Error("اسم المستخدم لازم يكون 3-20 حرفًا إنجليزيًا أو رقمًا أو _ أو .");
+   const cred=await createUserWithEmailAndPassword(auth,email,pass);
+   const claimed=await claimUsername(username,cred.user.uid);
+   if(!claimed){await signOut(auth);throw new Error("اسم المستخدم محجوز. اختار اسمًا آخر.");}
+   await updateProfile(cred.user,{displayName:name});
+   await set(ref(db,"users/"+cred.user.uid),{uid:cred.user.uid,name,username,createdAt:Date.now()});
+   authMsg("تم إنشاء حسابك بنجاح!",false);
+  }else{await signInWithEmailAndPassword(auth,email,pass);authMsg("تم تسجيل الدخول",false)}
+ }catch(e){console.error(e);authMsg(e.code?friendly(e):e.message)}
+ finally{$("authBtn").disabled=false}
 };
-$("verifyCodeBtn").onclick=async()=>{
-  const code=$("otpInput").value.trim();
-  if(!confirmation||!/^\d{6}$/.test(code)){
-    showAuthMessage("اكتب كود التحقق المكوّن من 6 أرقام");
-    return;
-  }
-  $("verifyCodeBtn").disabled=true;
-  try{
-    await confirmation.confirm(code);
-    showAuthMessage("تم التحقق بنجاح",false);
-  }catch(e){
-    console.error("EGYPT CHAT OTP verification error:",e);
-    showAuthMessage(authError(e));
-  }finally{
-    $("verifyCodeBtn").disabled=false;
-  }
-};
-function authError(e){
-  const code=e?.code||"unknown";
-  const map={
-    "auth/invalid-phone-number":"رقم الهاتف غير صحيح.",
-    "auth/too-many-requests":"تم إجراء محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.",
-    "auth/invalid-verification-code":"كود التحقق غير صحيح.",
-    "auth/code-expired":"انتهت صلاحية الكود. اطلب كودًا جديدًا.",
-    "auth/operation-not-allowed":"Firebase رفض تسجيل الهاتف (auth/operation-not-allowed). تأكد أن Phone مفعّل في نفس مشروع Firebase الموجود في firebase-config.js.",
-    "auth/unauthorized-domain":"هذا الدومين غير مصرح به. أضف دومين GitHub Pages الظاهر في شريط العنوان إلى Authentication > Settings > Authorized domains.",
-    "auth/captcha-check-failed":"فشل اختبار reCAPTCHA. تأكد من الدومين والاتصال بالإنترنت، ثم حدّث الصفحة.",
-    "auth/missing-phone-number":"اكتب رقم الهاتف أولًا.",
-    "auth/quota-exceeded":"تم تجاوز حد رسائل SMS المسموح به لهذا المشروع.",
-    "auth/billing-not-enabled":"قد يتطلب إرسال SMS تفعيل خطة فوترة في مشروع Firebase.",
-    "auth/network-request-failed":"تعذر الاتصال بخدمة Firebase. افحص الإنترنت وحاول مجددًا."
-  };
-  return (map[code]||"تعذر إكمال تسجيل الدخول.")+"\\nرمز الخطأ: "+code+"\\nالتفاصيل: "+(e?.message||"لا توجد تفاصيل");
-}
 onAuthStateChanged(auth,async user=>{
- currentUser=user;
- if(user){$("authView").classList.add("hidden");$("chatView").classList.remove("hidden");await ensureUser(user);renderMe();listenChats()}
- else{$("chatView").classList.add("hidden");$("authView").classList.remove("hidden");}
+ me=user;
+ if(user){
+  $("authView").classList.add("hidden");$("chatApp").classList.remove("hidden");
+  let snap=await get(ref(db,"users/"+user.uid));
+  if(!snap.exists()){await set(ref(db,"users/"+user.uid),{uid:user.uid,name:user.displayName||"مستخدم",username:"user_"+user.uid.slice(0,8).toLowerCase(),createdAt:Date.now()});snap=await get(ref(db,"users/"+user.uid))}
+  paintMe(snap.val());listenChats();
+ }else{$("chatApp").classList.add("hidden");$("authView").classList.remove("hidden")}
 });
-async function ensureUser(user){
- const r=ref(db,`users/${user.uid}`),snap=await get(r);
- if(!snap.exists()) await set(r,{uid:user.uid,phone:user.phoneNumber||"",name:"مستخدم جديد",createdAt:serverTimestamp(),lastSeen:serverTimestamp()});
- else if(user.phoneNumber && snap.val().phone!==user.phoneNumber) await set(ref(db,`users/${user.uid}/phone`),user.phoneNumber);
- if(user.phoneNumber){const key=user.phoneNumber.replace(/[^0-9]/g,"");await set(ref(db,`phoneIndex/${key}`),user.uid);}
-}
-async function renderMe(){const s=await get(ref(db,`users/${currentUser.uid}`)),u=s.val()||{};$("myName").textContent=u.name||"مستخدم";$("myPhone").textContent=currentUser.phoneNumber||"";$("myAvatar").textContent=(u.name||"م").slice(0,1)}
-$("logoutBtn").onclick=()=>signOut(auth);
-$("editProfileBtn").onclick=()=>openModal(`<h3>تعديل الاسم</h3><input id="profileName" maxlength="30" placeholder="اكتب اسمك"><button class="action" id="saveProfile">حفظ الاسم</button>`,async()=>{const name=$("profileName").value.trim();if(!name)return toast("اكتب اسمًا أولًا");await set(ref(db,`users/${currentUser.uid}/name`),name);await renderMe();toast("تم تحديث الاسم")});
-function openModal(html,bind){$("modalContent").innerHTML=html;$("modal").classList.remove("hidden");bind?.()}
+function paintMe(u){$("myName").textContent=u.name||"مستخدم";$("myHandle").textContent="@"+(u.username||"");$("myAvatar").textContent=(u.name||"E").slice(0,1)}
+$("logout").onclick=()=>signOut(auth);
+function listenChats(){if(stopChats)stopChats();stopChats=onValue(ref(db,"userChats/"+me.uid),async s=>{chatMap={};const ids=Object.keys(s.val()||{});for(const id of ids){const c=await get(ref(db,"chats/"+id));if(c.exists())chatMap[id]=c.val()}renderChats()})}
+function renderChats(){const q=$("filterChats").value.toLowerCase();const arr=Object.entries(chatMap).filter(([id,c])=>(c.title||"").toLowerCase().includes(q));$("chatCount").textContent=arr.length;$("chatList").innerHTML=arr.length?arr.map(([id,c])=>`<div class="chat-item ${id===activeId?"selected":""}" data-id="${clean(id)}"><div class="avatar">${clean((c.title||"?").slice(0,1))}</div><div class="chat-meta"><b>${clean(c.title||"محادثة")}</b><small>${clean(c.lastMessage||"ابدأ المحادثة")}</small></div></div>`).join(""):`<div class="empty">لسه مفيش محادثات<br>ابحث عن أصحابك ✨</div>`;$("chatList").querySelectorAll("[data-id]").forEach(x=>x.onclick=()=>openRoom(x.dataset.id))}
+$("filterChats").oninput=renderChats;
+async function openRoom(id){activeId=id;activeChat=chatMap[id];$("welcome").classList.add("hidden");$("room").classList.remove("hidden");$("chatApp").classList.add("mobile-room");$("roomName").textContent=activeChat.title||"محادثة";$("roomHandle").textContent=activeChat.handle||"";$("roomAvatar").textContent=(activeChat.title||"?").slice(0,1);renderChats();if(stopMsgs)stopMsgs();stopMsgs=onValue(query(ref(db,"messages/"+id),orderByChild("createdAt"),limitToLast(100)),s=>{const data=s.val()||{};$("messages").innerHTML=Object.values(data).map(m=>`<div class="bubble ${m.sender===me.uid?"mine":""}">${clean(m.text)}<small>${m.createdAt?new Date(m.createdAt).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"}):"الآن"}</small></div>`).join("");$("messages").scrollTop=$("messages").scrollHeight})}
+$("backMobile").onclick=()=>{$("chatApp").classList.remove("mobile-room");$("room").classList.add("hidden");$("welcome").classList.remove("hidden")};
+$("sendForm").onsubmit=async e=>{e.preventDefault();const text=$("messageText").value.trim();if(!text||!activeId)return;try{await set(push(ref(db,"messages/"+activeId)),{text,sender:me.uid,createdAt:Date.now()});await set(ref(db,"chats/"+activeId+"/lastMessage"),text);$("messageText").value=""}catch(e){toast("تعذر الإرسال. راجع قواعد قاعدة البيانات.")}};
+function modal(html,callback){$("modalBody").innerHTML=html;$("modal").classList.remove("hidden");callback?.()}
 function closeModal(){$("modal").classList.add("hidden")}
 $("closeModal").onclick=closeModal;$("modal").onclick=e=>{if(e.target===$("modal"))closeModal()};
-function listenChats(){if(stopChats)stopChats();stopChats=onValue(ref(db,`userChats/${currentUser.uid}`),async snap=>{const entries=snap.val()||{};chatsCache={};const ids=Object.keys(entries);for(const id of ids){const c=await get(ref(db,`chats/${id}`));if(c.exists())chatsCache[id]=c.val()}renderChatList()})}
-function renderChatList(){const q=$("searchInput").value.trim().toLowerCase(),items=Object.entries(chatsCache).filter(([id,c])=>(c.title||c.name||"").toLowerCase().includes(q));$("chatCount").textContent=items.length;$("conversationList").innerHTML=items.length?items.map(([id,c])=>`<div class="conversation-item ${id===activeChatId?"selected":""}" data-id="${esc(id)}"><div class="avatar">${esc((c.title||c.name||"؟").slice(0,1))}</div><div class="conversation-meta"><strong>${esc(c.title||c.name||"محادثة")}</strong><small>${esc(c.lastMessage||"ابدأ المحادثة")}</small></div></div>`).join(""):`<div class="empty-side">لسه مفيش محادثات<br>ابدأ محادثة جديدة ✨</div>`;$("conversationList").querySelectorAll("[data-id]").forEach(el=>el.onclick=()=>openChat(el.dataset.id))}
-$("searchInput").oninput=renderChatList;
-async function openChat(id){activeChatId=id;activeChat=chatsCache[id];$("welcomePanel").classList.add("hidden");$("activeChat").classList.remove("hidden");$("chatView").classList.add("mobile-chat");$("chatTitle").textContent=activeChat.title||activeChat.name||"محادثة";$("chatSubtitle").textContent=activeChat.type==="group"?"مجموعة":"محادثة خاصة";$("chatAvatar").textContent=(activeChat.title||activeChat.name||"؟").slice(0,1);renderChatList();if(stopMessages)stopMessages();stopMessages=onValue(query(ref(db,`messages/${id}`),orderByChild("createdAt"),limitToLast(150)),snap=>{const vals=snap.val()||{};$("messages").innerHTML=Object.entries(vals).map(([mid,m])=>`<div class="message-bubble ${m.sender===currentUser.uid?"mine":"theirs"}">${esc(m.text)}<span class="message-time">${m.createdAt?new Date(m.createdAt).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"}):"الآن"}</span></div>`).join("");$("messages").scrollTop=$("messages").scrollHeight})}
-$("messageForm").onsubmit=async e=>{e.preventDefault();const text=$("messageInput").value.trim();if(!text||!activeChatId)return;const msgRef=push(ref(db,`messages/${activeChatId}`));try{await set(msgRef,{text,sender:currentUser.uid,senderName:$("myName").textContent,createdAt:Date.now()});await set(ref(db,`chats/${activeChatId}/lastMessage`),text);$("messageInput").value=""}catch(e){toast("تعذر إرسال الرسالة. راجع صلاحيات قاعدة البيانات.")}};
-$("newChatBtn").onclick=()=>openModal(`<h3>محادثة جديدة</h3><label>رقم هاتف الشخص بكود الدولة</label><input id="targetPhone" placeholder="+2010xxxxxxxx" dir="ltr"><button class="action" id="startChat">البحث وبدء المحادثة</button>`,async()=>{$("startChat").onclick=async()=>{const phone=$("targetPhone").value.trim();if(!phone.startsWith("+"))return toast("اكتب الرقم بكود الدولة");const key=phone.replace(/[^0-9]/g,"");const indexSnap=await get(ref(db,`phoneIndex/${key}`));if(!indexSnap.exists())return toast("المستخدم غير موجود. لازم يسجل في الموقع أولًا.");const userSnap=await get(ref(db,`users/${indexSnap.val()}`));const found=userSnap.val();if(!found)return toast("تعذر العثور على بيانات المستخدم.");if(found.uid===currentUser.uid)return toast("ده رقم حسابك");const ids=[currentUser.uid,found.uid].sort(),id="dm_"+ids.join("_");const c=ref(db,`chats/${id}`),exists=await get(c);if(!exists.exists())await set(c,{type:"direct",members:{[ids[0]]:true,[ids[1]]:true},title:found.name||phone,createdAt:Date.now()});await set(ref(db,`userChats/${ids[0]}/${id}`),true);await set(ref(db,`userChats/${ids[1]}/${id}`),true);closeModal();toast("تم إنشاء المحادثة");setTimeout(()=>openChat(id),400)}});
-$("newGroupBtn").onclick=()=>openModal(`<h3>إنشاء مجموعة</h3><label>اسم المجموعة</label><input id="groupName" placeholder="مثال: صحاب العمر"><button class="action" id="createGroup">إنشاء المجموعة</button>`,async()=>{$("createGroup").onclick=async()=>{const name=$("groupName").value.trim();if(!name)return toast("اكتب اسم المجموعة");const id=push(ref(db,"chats")).key;await set(ref(db,`chats/${id}`),{type:"group",title:name,members:{[currentUser.uid]:true},createdAt:Date.now()});await set(ref(db,`userChats/${currentUser.uid}/${id}`),true);closeModal();toast("تم إنشاء المجموعة");setTimeout(()=>openChat(id),400)}});
-$("chatInfoBtn").onclick=()=>toast(activeChat?.type==="group"?"مجموعة دردشة":"محادثة خاصة");
-$("emojiBtn").onclick=()=>{$("messageInput").value+=" 😊";$("messageInput").focus()};
+$("findUser").onclick=()=>modal(`<h3>ابحث عن شخص</h3><label>اسم المستخدم المميز</label><input id="lookupUsername" placeholder="@username" dir="ltr"><button id="lookupBtn" class="action">بحث وبدء محادثة</button><p class="help">اكتب اليوزر فقط، من غير ما تحتاج رقم هاتف أو بريد الشخص.</p>`,()=>{$("lookupBtn").onclick=async()=>{let username=$("lookupUsername").value.trim().replace(/^@/,"");if(!usernameOK(username))return toast("اكتب يوزر صحيح من 3 إلى 20 حرفًا");const idx=await get(ref(db,"usernameIndex/"+keyOf(username)));if(!idx.exists())return toast("اليوزر غير موجود");const us=await get(ref(db,"users/"+idx.val()));if(!us.exists())return toast("تعذر العثور على الحساب");const u=us.val();if(u.uid===me.uid)return toast("ده اليوزر بتاعك");const ids=[me.uid,u.uid].sort(),id="dm_"+ids.join("_");const cr=ref(db,"chats/"+id),exists=await get(cr);if(!exists.exists())await set(cr,{type:"direct",members:{[ids[0]]:true,[ids[1]]:true},title:u.name,handle:"@"+u.username,createdAt:Date.now()});await set(ref(db,`userChats/${ids[0]}/${id}`),true);await set(ref(db,`userChats/${ids[1]}/${id}`),true);closeModal();toast("تم فتح المحادثة");setTimeout(()=>openRoom(id),300)}}});
+$("newGroup").onclick=()=>modal(`<h3>إنشاء مجموعة</h3><label>اسم المجموعة</label><input id="groupName" placeholder="اسم المجموعة"><button id="makeGroup" class="action">إنشاء</button>`,()=>{$("makeGroup").onclick=async()=>{const title=$("groupName").value.trim();if(!title)return toast("اكتب اسم المجموعة");const id=push(ref(db,"chats")).key;await set(ref(db,"chats/"+id),{type:"group",title,members:{[me.uid]:true},createdAt:Date.now()});await set(ref(db,`userChats/${me.uid}/${id}`),true);closeModal();toast("تم إنشاء المجموعة");setTimeout(()=>openRoom(id),300)}});
+$("editProfile").onclick=()=>modal(`<h3>ملفي الشخصي</h3><label>اسم العرض</label><input id="editName" value="${clean($("myName").textContent)}"><p class="help">اليوزر المميز ثابت ولا يمكن تغييره في هذه النسخة.</p><button id="saveProfile" class="action">حفظ</button>`,()=>{$("saveProfile").onclick=async()=>{const name=$("editName").value.trim();if(!name)return toast("اكتب اسمك");await set(ref(db,`users/${me.uid}/name`),name);await updateProfile(me,{displayName:name});$("myName").textContent=name;closeModal();toast("تم تحديث الاسم")}});

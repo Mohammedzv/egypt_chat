@@ -8,10 +8,10 @@
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-    "phoneIndex": {
-      "$phone": {
+    "usernameIndex": {
+      "$username": {
         ".read": "auth != null",
-        ".write": "auth != null && newData.val() === auth.uid"
+        ".write": "auth != null && !data.exists() && newData.val() === auth.uid"
       }
     },
     "userChats": {
