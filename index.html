@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#17102d">
+  <title>EGYPT CHAT | دردشتك بطريقتك</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <main class="app-shell">
+    <section id="authView" class="auth-view">
+      <div class="brand-mark">E<span>✦</span></div>
+      <p class="eyebrow">WELCOME TO</p><h1>EGYPT <b>CHAT</b></h1>
+      <p class="muted auth-subtitle">مساحتك الخاصة للتواصل مع اللي بتحبهم</p>
+      <div class="auth-card">
+        <div class="step-label"><span class="step-dot"></span> تسجيل الدخول برقم الهاتف</div>
+        <label for="phoneInput">رقم الهاتف</label>
+        <div class="phone-field"><span>🌍</span><input id="phoneInput" type="tel" placeholder="+20 10xxxxxxxx" autocomplete="tel"></div>
+        <p class="hint">اكتب الرقم بكود الدولة، مثال: +201012345678</p>
+        <button id="sendCodeBtn" class="primary-btn">إرسال كود التحقق <span>←</span></button>
+        <div id="recaptcha-container"></div>
+        <div id="otpPanel" class="otp-panel hidden">
+          <label for="otpInput">كود التحقق المرسل إليك</label>
+          <input id="otpInput" class="otp-input" inputmode="numeric" maxlength="6" placeholder="••••••">
+          <button id="verifyCodeBtn" class="primary-btn">تأكيد الدخول</button>
+        </div>
+        <p id="authMessage" class="message" aria-live="polite"></p>
+      </div>
+      <p class="fine-print">بالمتابعة، أنت توافق على استخدام EGYPT CHAT وفق قواعد المجتمع.</p>
+    </section>
+
+    <section id="chatView" class="chat-view hidden">
+      <aside class="sidebar">
+        <header class="side-header">
+          <div class="brand-small"><span class="mini-logo">E</span><div><strong>EGYPT CHAT</strong><small>خليك قريب</small></div></div>
+          <button id="logoutBtn" class="icon-btn" title="تسجيل الخروج">↪</button>
+        </header>
+        <div class="profile-strip"><div id="myAvatar" class="avatar">م</div><div class="profile-copy"><strong id="myName">مستخدم</strong><small id="myPhone"></small></div><button id="editProfileBtn" class="icon-btn" title="تعديل الاسم">✎</button></div>
+        <div class="side-actions"><button id="newChatBtn" class="outline-btn">＋ محادثة جديدة</button><button id="newGroupBtn" class="outline-btn">＋ مجموعة</button></div>
+        <div class="search-wrap"><span>⌕</span><input id="searchInput" placeholder="ابحث في المحادثات"></div>
+        <div class="section-heading">المحادثات <span id="chatCount">0</span></div>
+        <div id="conversationList" class="conversation-list"><div class="empty-side">لسه مفيش محادثات<br>ابدأ محادثة جديدة ✨</div></div>
+      </aside>
+      <section class="conversation-panel">
+        <div id="welcomePanel" class="welcome-panel">
+          <div class="welcome-orb">✦</div><h2>أهلاً بيك في <span>EGYPT CHAT</span></h2>
+          <p>اختار محادثة من القائمة أو ابدأ كلام جديد.</p>
+        </div>
+        <div id="activeChat" class="active-chat hidden">
+          <header class="chat-header"><div id="chatAvatar" class="avatar">؟</div><div class="chat-title"><strong id="chatTitle">المحادثة</strong><small id="chatSubtitle">متصل</small></div><button id="chatInfoBtn" class="icon-btn" title="معلومات">ⓘ</button></header>
+          <div id="messages" class="messages"></div>
+          <form id="messageForm" class="composer"><button type="button" id="emojiBtn" class="emoji-btn" title="إيموجي">☺</button><input id="messageInput" autocomplete="off" placeholder="اكتب رسالتك هنا..." maxlength="2000"><button class="send-btn" type="submit" aria-label="إرسال">➤</button></form>
+        </div>
+      </section>
+    </section>
+  </main>
+  <div id="modal" class="modal hidden"><div class="modal-card"><button id="closeModal" class="modal-close">×</button><div id="modalContent"></div></div></div>
+  <div id="toast" class="toast"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
