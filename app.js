@@ -9,24 +9,88 @@ let confirmation=null, verifier=null, currentUser=null, activeChatId=null, activ
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function toast(s){$("toast").textContent=s;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2600)}
 function showAuthMessage(s,error=true){$("authMessage").textContent=s;$("authMessage").style.color=error?"#ffb9c2":"#8de7c5"}
-function makeVerifier(){if(verifier) return verifier;verifier=new RecaptchaVerifier(auth,"recaptcha-container",{size:"normal",callback:()=>{}});return verifier}
+function resetVerifier(){
+  if(verifier){try{verifier.clear()}catch(_){} verifier=null;}
+  $("recaptcha-container").innerHTML="";
+}
+function normalizePhone(value){
+  let p=value.replace(/[\s()-]/g,"");
+  if(/^01\d{9}$/.test(p)) p="+2"+p; // Egyptian local mobile: 01xxxxxxxxx -> +201xxxxxxxxx
+  else if(/^20\d{10}$/.test(p)) p="+"+p;
+  return p;
+}
+function makeVerifier(){
+  if(!verifier){
+    verifier=new RecaptchaVerifier(auth,"recaptcha-container",{size:"normal"});
+  }
+  return verifier;
+}
 $("sendCodeBtn").onclick=async()=>{
- const phone=$("phoneInput").value.trim();
- if(!/^\+[1-9]\d{7,14}$/.test(phone)){showAuthMessage("اكتب رقم الهاتف بصيغة دولية، مثال +201012345678");return}
- $("sendCodeBtn").disabled=true;showAuthMessage("جاري إرسال كود التحقق...",false);
- try{confirmation=await signInWithPhoneNumber(auth,phone,makeVerifier());$("otpPanel").classList.remove("hidden");showAuthMessage("تم إرسال الكود. راجع رسائلك.",false)}
- catch(e){showAuthMessage(authError(e));if(verifier){verifier.clear();verifier=null}}
- finally{$("sendCodeBtn").disabled=false}
+  const phone=normalizePhone($("phoneInput").value.trim());
+  if(!/^\+[1-9]\d{7,14}$/.test(phone)){
+    showAuthMessage("رقم الهاتف غير صحيح. اكتب رقمًا مصريًا مثل 01270178005 أو دوليًا مثل +201270178005");
+    return;
+  }
+  $("sendCodeBtn").disabled=true;
+  showAuthMessage("جاري تجهيز التحقق وإرسال كود SMS...",false);
+  try{
+    const captcha=makeVerifier();
+    confirmation=await signInWithPhoneNumber(auth,phone,captcha);
+    $("otpPanel").classList.remove("hidden");
+    showAuthMessage("تم إرسال كود التحقق إلى "+phone,false);
+  }catch(e){
+    console.error("EGYPT CHAT phone auth error:",e);
+    showAuthMessage(authError(e));
+    resetVerifier();
+  }finally{
+    $("sendCodeBtn").disabled=false;
+  }
 };
-$("verifyCodeBtn").onclick=async()=>{const code=$("otpInput").value.trim();if(!confirmation||!/^\d{6}$/.test(code)){showAuthMessage("اكتب كود التحقق المكوّن من 6 أرقام");return}try{await confirmation.confirm(code);showAuthMessage("تم التحقق بنجاح",false)}catch(e){showAuthMessage(authError(e))}};
-function authError(e){const map={"auth/invalid-phone-number":"رقم الهاتف غير صحيح.","auth/too-many-requests":"محاولات كثيرة. حاول لاحقًا.","auth/invalid-verification-code":"كود التحقق غير صحيح.","auth/code-expired":"انتهت صلاحية الكود. اطلب كودًا جديدًا.","auth/operation-not-allowed":"فعّل Phone في Firebase Authentication.","auth/unauthorized-domain":"أضف نطاق الموقع إلى Authorized domains في Firebase."};return map[e.code]||("حصل خطأ: "+e.message)}
+$("verifyCodeBtn").onclick=async()=>{
+  const code=$("otpInput").value.trim();
+  if(!confirmation||!/^\d{6}$/.test(code)){
+    showAuthMessage("اكتب كود التحقق المكوّن من 6 أرقام");
+    return;
+  }
+  $("verifyCodeBtn").disabled=true;
+  try{
+    await confirmation.confirm(code);
+    showAuthMessage("تم التحقق بنجاح",false);
+  }catch(e){
+    console.error("EGYPT CHAT OTP verification error:",e);
+    showAuthMessage(authError(e));
+  }finally{
+    $("verifyCodeBtn").disabled=false;
+  }
+};
+function authError(e){
+  const code=e?.code||"unknown";
+  const map={
+    "auth/invalid-phone-number":"رقم الهاتف غير صحيح.",
+    "auth/too-many-requests":"تم إجراء محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.",
+    "auth/invalid-verification-code":"كود التحقق غير صحيح.",
+    "auth/code-expired":"انتهت صلاحية الكود. اطلب كودًا جديدًا.",
+    "auth/operation-not-allowed":"Firebase رفض تسجيل الهاتف (auth/operation-not-allowed). تأكد أن Phone مفعّل في نفس مشروع Firebase الموجود في firebase-config.js.",
+    "auth/unauthorized-domain":"هذا الدومين غير مصرح به. أضف دومين GitHub Pages الظاهر في شريط العنوان إلى Authentication > Settings > Authorized domains.",
+    "auth/captcha-check-failed":"فشل اختبار reCAPTCHA. تأكد من الدومين والاتصال بالإنترنت، ثم حدّث الصفحة.",
+    "auth/missing-phone-number":"اكتب رقم الهاتف أولًا.",
+    "auth/quota-exceeded":"تم تجاوز حد رسائل SMS المسموح به لهذا المشروع.",
+    "auth/billing-not-enabled":"قد يتطلب إرسال SMS تفعيل خطة فوترة في مشروع Firebase.",
+    "auth/network-request-failed":"تعذر الاتصال بخدمة Firebase. افحص الإنترنت وحاول مجددًا."
+  };
+  return (map[code]||"تعذر إكمال تسجيل الدخول.")+"\\nرمز الخطأ: "+code+"\\nالتفاصيل: "+(e?.message||"لا توجد تفاصيل");
+}
 onAuthStateChanged(auth,async user=>{
  currentUser=user;
  if(user){$("authView").classList.add("hidden");$("chatView").classList.remove("hidden");await ensureUser(user);renderMe();listenChats()}
  else{$("chatView").classList.add("hidden");$("authView").classList.remove("hidden");}
 });
-async function ensureUser(user){const r=ref(db,`users/${user.uid}`),s=await get(r);if(!s.exists())await set(r,{uid:user.uid,phone:user.phoneNumber||"",name:"مستخدم جديد",createdAt:serverTimestamp(),lastSeen:serverTimestamp()});
- if(user.phoneNumber){const key=user.phoneNumber.replace(/[^0-9]/g,"");await set(ref(db,`phoneIndex/${key}`),user.uid);}}
+async function ensureUser(user){
+ const r=ref(db,`users/${user.uid}`),snap=await get(r);
+ if(!snap.exists()) await set(r,{uid:user.uid,phone:user.phoneNumber||"",name:"مستخدم جديد",createdAt:serverTimestamp(),lastSeen:serverTimestamp()});
+ else if(user.phoneNumber && snap.val().phone!==user.phoneNumber) await set(ref(db,`users/${user.uid}/phone`),user.phoneNumber);
+ if(user.phoneNumber){const key=user.phoneNumber.replace(/[^0-9]/g,"");await set(ref(db,`phoneIndex/${key}`),user.uid);}
+}
 async function renderMe(){const s=await get(ref(db,`users/${currentUser.uid}`)),u=s.val()||{};$("myName").textContent=u.name||"مستخدم";$("myPhone").textContent=currentUser.phoneNumber||"";$("myAvatar").textContent=(u.name||"م").slice(0,1)}
 $("logoutBtn").onclick=()=>signOut(auth);
 $("editProfileBtn").onclick=()=>openModal(`<h3>تعديل الاسم</h3><input id="profileName" maxlength="30" placeholder="اكتب اسمك"><button class="action" id="saveProfile">حفظ الاسم</button>`,async()=>{const name=$("profileName").value.trim();if(!name)return toast("اكتب اسمًا أولًا");await set(ref(db,`users/${currentUser.uid}/name`),name);await renderMe();toast("تم تحديث الاسم")});
