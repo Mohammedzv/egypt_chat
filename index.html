@@ -1,65 +1,45 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#17102d">
-  <title>EGYPT CHAT | دردشتك بطريقتك</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#120d22">
+<title>EGYPT CHAT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
-  <main class="app-shell">
-    <section id="authView" class="auth-view">
-      <div class="brand-mark">E<span>✦</span></div>
-      <p class="eyebrow">WELCOME TO</p><h1>EGYPT <b>CHAT</b></h1>
-      <p class="muted auth-subtitle">مساحتك الخاصة للتواصل مع اللي بتحبهم</p>
-      <div class="auth-card">
-        <div class="step-label"><span class="step-dot"></span> تسجيل الدخول برقم الهاتف</div>
-        <label for="phoneInput">رقم الهاتف</label>
-        <div class="phone-field"><span>🌍</span><input id="phoneInput" type="tel" placeholder="+20 10xxxxxxxx" autocomplete="tel"></div>
-        <p class="hint">اكتب الرقم بكود الدولة، مثال: +201012345678</p>
-        <button id="sendCodeBtn" class="primary-btn">إرسال كود التحقق <span>←</span></button>
-        <div id="recaptcha-container"></div>
-        <div id="otpPanel" class="otp-panel hidden">
-          <label for="otpInput">كود التحقق المرسل إليك</label>
-          <input id="otpInput" class="otp-input" inputmode="numeric" maxlength="6" placeholder="••••••">
-          <button id="verifyCodeBtn" class="primary-btn">تأكيد الدخول</button>
-        </div>
-        <p id="authMessage" class="message" aria-live="polite"></p>
-      </div>
-      <p class="fine-print">بالمتابعة، أنت توافق على استخدام EGYPT CHAT وفق قواعد المجتمع.</p>
-    </section>
-
-    <section id="chatView" class="chat-view hidden">
-      <aside class="sidebar">
-        <header class="side-header">
-          <div class="brand-small"><span class="mini-logo">E</span><div><strong>EGYPT CHAT</strong><small>خليك قريب</small></div></div>
-          <button id="logoutBtn" class="icon-btn" title="تسجيل الخروج">↪</button>
-        </header>
-        <div class="profile-strip"><div id="myAvatar" class="avatar">م</div><div class="profile-copy"><strong id="myName">مستخدم</strong><small id="myPhone"></small></div><button id="editProfileBtn" class="icon-btn" title="تعديل الاسم">✎</button></div>
-        <div class="side-actions"><button id="newChatBtn" class="outline-btn">＋ محادثة جديدة</button><button id="newGroupBtn" class="outline-btn">＋ مجموعة</button></div>
-        <div class="search-wrap"><span>⌕</span><input id="searchInput" placeholder="ابحث في المحادثات"></div>
-        <div class="section-heading">المحادثات <span id="chatCount">0</span></div>
-        <div id="conversationList" class="conversation-list"><div class="empty-side">لسه مفيش محادثات<br>ابدأ محادثة جديدة ✨</div></div>
-      </aside>
-      <section class="conversation-panel">
-        <div id="welcomePanel" class="welcome-panel">
-          <div class="welcome-orb">✦</div><h2>أهلاً بيك في <span>EGYPT CHAT</span></h2>
-          <p>اختار محادثة من القائمة أو ابدأ كلام جديد.</p>
-        </div>
-        <div id="activeChat" class="active-chat hidden">
-          <header class="chat-header"><div id="chatAvatar" class="avatar">؟</div><div class="chat-title"><strong id="chatTitle">المحادثة</strong><small id="chatSubtitle">متصل</small></div><button id="chatInfoBtn" class="icon-btn" title="معلومات">ⓘ</button></header>
-          <div id="messages" class="messages"></div>
-          <form id="messageForm" class="composer"><button type="button" id="emojiBtn" class="emoji-btn" title="إيموجي">☺</button><input id="messageInput" autocomplete="off" placeholder="اكتب رسالتك هنا..." maxlength="2000"><button class="send-btn" type="submit" aria-label="إرسال">➤</button></form>
-        </div>
-      </section>
-    </section>
-  </main>
-  <div id="modal" class="modal hidden"><div class="modal-card"><button id="closeModal" class="modal-close">×</button><div id="modalContent"></div></div></div>
-  <div id="toast" class="toast"></div>
-  <script type="module" src="app.js"></script>
-</body>
-</html>
+<div class="glow g1"></div><div class="glow g2"></div>
+<main class="wrap">
+<section id="authView" class="auth">
+ <div class="logo">E<span>✦</span></div><div class="overline">WELCOME TO</div><h1>EGYPT <b>CHAT</b></h1><p class="sub">دردشتك.. بطريقتك</p>
+ <div class="panel">
+  <div class="tabs"><button id="loginTab" class="tab active">تسجيل الدخول</button><button id="registerTab" class="tab">إنشاء حساب</button></div>
+  <div id="nameWrap" class="hidden"><label>اسم العرض</label><input id="nameInput" class="field" maxlength="30" placeholder="اسمك اللي هيظهر للناس"></div>
+  <div id="usernameWrap" class="hidden"><label>اسم المستخدم المميز</label><div class="username-field"><span>@</span><input id="usernameInput" class="field plain" maxlength="20" placeholder="username" dir="ltr"></div><small class="help">من 3 إلى 20 حرفًا: إنجليزي أو أرقام أو _ أو . — لا يمكن تغييره حاليًا</small></div>
+  <label>البريد الإلكتروني</label><input id="emailInput" class="field" type="email" placeholder="name@example.com" dir="ltr">
+  <label>كلمة المرور</label><input id="passwordInput" class="field" type="password" placeholder="6 أحرف على الأقل">
+  <button id="authBtn" class="main-btn">تسجيل الدخول</button><p id="authMsg" class="msg"></p>
+ </div>
+ <p class="foot">ابحث عن أصحابك باسم المستخدم المميز @username</p>
+</section>
+<section id="chatApp" class="chat-app hidden">
+ <aside class="sidebar">
+  <header class="side-head"><div class="brand"><span class="mini">E</span><div><b>EGYPT CHAT</b><small>خليك قريب</small></div></div><button id="logout" class="ghost" title="خروج">↪</button></header>
+  <div class="me"><div id="myAvatar" class="avatar">E</div><div class="me-data"><b id="myName">مستخدم</b><small id="myHandle">@user</small></div><button id="editProfile" class="ghost">✎</button></div>
+  <div class="actions"><button id="findUser" class="outline">＋ ابحث عن شخص</button><button id="newGroup" class="outline">＋ مجموعة</button></div>
+  <div class="search"><span>⌕</span><input id="filterChats" placeholder="ابحث في محادثاتك"></div>
+  <div class="list-title">المحادثات <span id="chatCount">0</span></div><div id="chatList" class="chat-list"><div class="empty">لسه مفيش محادثات<br>ابدأ وابحث عن أصحابك ✨</div></div>
+ </aside>
+ <section class="conversation">
+  <div id="welcome" class="welcome"><div class="orb">✦</div><h2>أهلاً بيك في <b>EGYPT CHAT</b></h2><p>ابحث عن أي شخص باستخدام اسم المستخدم المميز بتاعه.</p></div>
+  <div id="room" class="room hidden">
+   <header class="room-head"><button id="backMobile" class="ghost back">→</button><div id="roomAvatar" class="avatar">?</div><div class="room-person"><b id="roomName">المحادثة</b><small id="roomHandle"></small></div></header>
+   <div id="messages" class="messages"></div>
+   <form id="sendForm" class="composer"><input id="messageText" maxlength="2000" placeholder="اكتب رسالتك هنا..." autocomplete="off"><button class="send" type="submit">➤</button></form>
+  </div>
+ </section>
+</section>
+</main>
+<div id="modal" class="modal hidden"><div class="modal-box"><button id="closeModal" class="close">×</button><div id="modalBody"></div></div></div>
+<div id="toast" class="toast"></div>
+<script type="module" src="app.js"></script>
+</body></html>
