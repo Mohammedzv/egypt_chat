@@ -176,13 +176,14 @@ async function startDirectChat(person) {
   const chatRef = ref(db, `chats/${id}`);
   const existing = await get(chatRef);
   if (!existing.exists()) {
-    const payload = { type:"direct", members:{[me.uid]:true,[person.uid]:true}, memberNames:{[me.uid]:$("myName").textContent,[person.uid]:person.name}, createdAt:Date.now(), updatedAt:Date.now(), lastMessage:"ابدأ المحادثة" };
-    const updates = {};
-    updates[`chats/${id}`] = payload;
-    updates[`userChats/${me.uid}/${id}`] = true;
-    updates[`userChats/${person.uid}/${id}`] = true;
-    await update(ref(db), updates);
+    const now = Date.now();
+    const payload = { type:"direct", members:{[me.uid]:true,[person.uid]:true}, memberNames:{[me.uid]:$("myName").textContent,[person.uid]:person.name}, createdAt:now, updatedAt:now, lastMessage:"ابدأ المحادثة" };
+    // احفظ المحادثة أولاً؛ قواعد userChats تحتاج أن ترى عضوية المحادثة قبل ربطها بالطرفين.
+    await set(chatRef, payload);
   }
+  // كل طرف يضيف المحادثة إلى قائمته بعد إنشاء سجل المحادثة.
+  await set(ref(db, `userChats/${me.uid}/${id}`), true);
+  await set(ref(db, `userChats/${person.uid}/${id}`), true);
   await openChat(id);
 }
 async function openChat(id) {
@@ -197,7 +198,10 @@ async function openChat(id) {
     $("chatAvatar").textContent = initials(chatName(chat));
     switchView("chat"); renderChats();
     if (stopMessages) stopMessages();
-    stopMessages = onValue(ref(db, `messages/${id}`), msgSnap => renderMessages(msgSnap.val() || {}), err => toast(prettyError(err)));
+    stopMessages = onValue(ref(db, `messages/${id}`), msgSnap => renderMessages(msgSnap.val() || {}), err => {
+      toast("مش قادرين نحمّل الرسائل: " + prettyError(err));
+      $("messagesArea").innerHTML = `<div class="empty-state">تعذر تحميل الرسائل. راجع صلاحيات قاعدة البيانات.</div>`;
+    });
   } catch (err) { toast(prettyError(err)); }
 }
 function renderMessages(messages) {
@@ -216,7 +220,10 @@ $("messageForm").addEventListener("submit", async e => {
     const now = Date.now();
     await set(msgRef, { sender:me.uid, text, createdAt:now });
     await update(ref(db, `chats/${activeChatId}`), { lastMessage:text.slice(0,90), updatedAt:now });
-  } catch (err) { toast(prettyError(err)); $("messageInput").value = text; }
+  } catch (err) {
+    toast("لم يتم إرسال الرسالة: " + prettyError(err));
+    $("messageInput").value = text;
+  }
 });
 
 async function searchPeople() {
@@ -247,8 +254,10 @@ async function createGroup() {
     const newRef = push(ref(db,"chats"));
     const id = newRef.key, now = Date.now();
     const payload = { type:"group", title:title.trim().slice(0,40), owner:me.uid, members:{[me.uid]:true}, memberNames:{[me.uid]:$("myName").textContent}, createdAt:now, updatedAt:now, lastMessage:"تم إنشاء المجموعة" };
-    const updates = {}; updates[`chats/${id}`] = payload; updates[`userChats/${me.uid}/${id}`] = true;
-    await update(ref(db),updates); await openChat(id);
+    // أنشئ سجل المجموعة أولاً ثم أضفه لقائمة المستخدم.
+    await set(newRef, payload);
+    await set(ref(db, `userChats/${me.uid}/${id}`), true);
+    await openChat(id);
   } catch(err) { toast(prettyError(err)); }
 }
 $("profileBtn").onclick = () => {

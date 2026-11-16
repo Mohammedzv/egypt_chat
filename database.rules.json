@@ -19,7 +19,7 @@
       "$uid": {
         ".read": "auth != null && auth.uid == $uid",
         "$chatId": {
-          ".write": "auth != null && auth.uid == $uid && newData.val() == true"
+          ".write": "auth != null && newData.val() == true && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && root.child('chats').child($chatId).child('members').child($uid).val() == true"
         }
       }
     },
@@ -34,7 +34,7 @@
       "$chatId": {
         ".read": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true",
         "$messageId": {
-          ".write": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && (!data.exists() && newData.child('sender').val() == auth.uid)",
+          ".write": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && !data.exists() && newData.child('sender').val() == auth.uid",
           ".validate": "newData.hasChildren(['sender', 'text', 'createdAt']) && newData.child('text').isString() && newData.child('text').val().length <= 4000"
         }
       }
