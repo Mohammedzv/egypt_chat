@@ -1,3 +1,5 @@
+// إعدادات Firebase الخاصة بمشروع EGYPT CHAT
+// راجع databaseURL من Firebase Console > Realtime Database وتأكد أنه مطابق تمامًا.
 export const firebaseConfig = {
   apiKey: "AIzaSyDiXpFl7qw7I_RSZQE4k-qnzTs3sw-Hjjw",
   authDomain: "egypt-956e1.firebaseapp.com",
