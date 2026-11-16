@@ -5,7 +5,7 @@
     "usernameIndex": {
       "$username": {
         ".read": "auth != null",
-        ".write": "auth != null && !data.exists() && newData.isString() && newData.val() == auth.uid"
+        ".write": "auth != null && ((!data.exists() && newData.isString() && newData.val() == auth.uid) || (data.val() == auth.uid && !newData.exists()))"
       }
     },
     "users": {

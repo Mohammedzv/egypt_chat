@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, signOut, updateProfile
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
-  getDatabase, ref, get, set, update, push, onValue, runTransaction,
+  getDatabase, ref, get, set, update, push, onValue, runTransaction, remove,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
 import { firebaseConfig } from "./firebase-config.js";
@@ -33,7 +33,10 @@ function prettyError(error) {
     "auth/invalid-credential":"البريد الإلكتروني أو كلمة المرور غير صحيحة.",
     "auth/user-not-found":"الحساب غير موجود.",
     "auth/network-request-failed":"تأكد من اتصال الإنترنت.",
-    "PERMISSION_DENIED":"قواعد Firebase لا تسمح بالعملية. راجع ملف القواعد."
+    "PERMISSION_DENIED":"Firebase رفض العملية بسبب قواعد قاعدة البيانات. انشر ملف database.rules.json الصحيح.",
+    "database/permission-denied":"صلاحيات Realtime Database تمنع إنشاء الحساب. راجع قواعد قاعدة البيانات.",
+    "auth/operation-not-allowed":"فعّل Email/Password من Firebase Authentication > Sign-in method.",
+    "auth/too-many-requests":"محاولات كثيرة؛ انتظر قليلًا ثم جرّب مرة أخرى."
   };
   return map[code] || error?.message || "حصل خطأ غير متوقع.";
 }
@@ -57,24 +60,37 @@ $("signupForm").addEventListener("submit", async e => {
   const password = $("signupPassword").value;
   if (name.length < 2) return setAuthMessage("اكتب اسم عرض صحيح.");
   if (!/^[a-z0-9_]{3,20}$/.test(username)) return setAuthMessage("اليوزر لازم يكون 3-20 حرفًا إنجليزيًا أو رقمًا أو _");
-  let credential;
+  const submitButton = $("signupForm").querySelector('button[type="submit"]');
+  const originalLabel = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = "جاري إنشاء الحساب...";
+  let credential = null;
+  let usernameReserved = false;
   try {
     credential = await createUserWithEmailAndPassword(auth, email, password);
     const uid = credential.user.uid;
     const reservation = await runTransaction(ref(db, `usernameIndex/${username}`), current => current === null ? uid : undefined);
     if (!reservation.committed) {
       await deleteNewAccount(credential.user);
+      credential = null;
       return setAuthMessage("اليوزر ده محجوز بالفعل. اختار يوزر تاني.");
     }
+    usernameReserved = true;
     await updateProfile(credential.user, { displayName: name });
-    await set(ref(db, `users/${uid}`), { name, username, createdAt: serverTimestamp() });
+    await set(ref(db, `users/${uid}`), { name, username, createdAt: Date.now() });
     await activateUser(credential.user);
     toast("أهلاً بيك في EGYPT CHAT 🎉");
   } catch (err) {
+    if (usernameReserved && credential?.user) {
+      try { await remove(ref(db, `usernameIndex/${username}`)); } catch {}
+    }
     if (credential?.user) {
       try { await deleteNewAccount(credential.user); } catch {}
     }
     setAuthMessage(prettyError(err));
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = originalLabel;
   }
 });
 async function deleteNewAccount(user) {

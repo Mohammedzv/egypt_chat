@@ -8,3 +8,41 @@
 .modal-layer{position:fixed;z-index:20;inset:0;background:#030615bd;backdrop-filter:blur(9px);display:grid;place-items:center;padding:20px}.modal-card{position:relative;width:min(440px,100%);padding:30px;background:#151a3b;border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow)}.modal-close{position:absolute;left:15px;top:12px;border:0;background:none;color:#aab2d5;font-size:25px}.modal-card h2{margin:0 0 18px}.modal-card label{display:block;color:#b9c1df;font-size:12px;margin:12px 0 5px}.modal-card input{width:100%;padding:12px;background:#090e25;border:1px solid var(--line);border-radius:11px;color:white;outline:0}.modal-card .primary{margin-top:18px}.toast{position:fixed;z-index:30;bottom:24px;left:50%;transform:translate(-50%,20px);opacity:0;pointer-events:none;background:#20284e;border:1px solid #8b5cf655;color:white;padding:11px 18px;border-radius:12px;font-size:12px;transition:.25s}.toast.show{opacity:1;transform:translate(-50%,0)}
 @media(max-width:900px){.auth-shell{grid-template-columns:1fr;gap:22px;max-width:520px;padding:25px}.auth-brand{padding:10px}.brand-mark{width:70px;height:70px;border-radius:23px;font-size:27px;margin-bottom:12px}.brand-word{font-size:27px}.auth-brand p{margin:3px}.auth-orbit{display:none}.auth-card{padding:22px}.app-shell{padding:0;display:block;height:100dvh}.sidebar,.workspace{border-radius:0;border:0;height:100%;}.sidebar{position:absolute;z-index:10;top:0;right:0;width:min(340px,88vw);height:100%;transform:translateX(110%);transition:.25s;border-left:1px solid var(--line);border-radius:0 0 0 18px}.sidebar.open{transform:translateX(0)}.close-mobile{display:block;margin-right:auto}.workspace{height:100dvh}.mobile-top{height:58px;flex:0 0 58px;display:flex;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid var(--line)}.mobile-top strong{font-size:16px}.mobile-top b{color:#a77aff}.welcome-view{padding:20px}.welcome-view h1{font-size:22px}.welcome-stats{gap:18px;margin-top:35px}.content-view{padding:25px 18px}.view-heading{gap:10px}.view-heading h1{font-size:23px}.chat-view{height:calc(100dvh - 58px)}.chat-header{height:66px;flex-basis:66px;padding:0 13px}.back-mobile{display:block}.chat-tools{gap:0}.messages-area{padding:18px 13px}.message{max-width:85%}.composer{margin:0 10px 10px}.auth-shell{min-height:100dvh}.people-search{margin:22px 0}.sidebar-bottom{padding-bottom:8px}}
 @media(min-width:901px) and (max-width:1100px){.app-shell{grid-template-columns:300px 1fr}.auth-shell{gap:4vw}}
+
+
+/* Mobile-first correction: also handles browsers using a desktop-width viewport on phones. */
+@media (max-width: 1100px) {
+  .auth-shell {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+    width: 100%;
+    max-width: 560px;
+    min-height: 100dvh;
+    margin: 0 auto;
+    padding: 22px 18px;
+    gap: 16px;
+  }
+  .auth-brand { padding: 0 0 4px; }
+  .brand-mark { width: 58px; height: 58px; border-radius: 18px; font-size: 23px; margin: 0 auto 7px; }
+  .brand-word { font-size: 23px; }
+  .auth-brand p { font-size: 12px; margin: 2px 0; }
+  .auth-orbit { display: none; }
+  .auth-card { width: 100%; padding: 22px 18px; border-radius: 22px; }
+  .auth-form h1 { font-size: 22px; }
+  .auth-form input { min-width: 0; width: 100%; color-scheme: dark; appearance: none; background: #090e25; color: #f5f6ff; border: 1px solid rgba(160,173,255,.2); }
+  .auth-form input:-webkit-autofill,
+  .auth-form input:-webkit-autofill:hover,
+  .auth-form input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #f5f6ff;
+    box-shadow: 0 0 0 1000px #090e25 inset;
+    transition: background-color 99999s ease-out;
+  }
+  .auth-tabs { display: flex; gap: 5px; }
+  .auth-tabs .tab { min-width: 0; font-size: 13px; font-weight: 700; border: 1px solid transparent; }
+  .auth-tabs .tab.active { border-color: #a78bfa55; background: linear-gradient(100deg,#6338d8,#2669d8); }
+  .auth-form .wide { min-height: 48px; }
+  .auth-foot { margin-top: 17px; }
+}
+html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
