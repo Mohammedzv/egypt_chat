@@ -174,17 +174,59 @@ async function startDirectChat(person) {
   if (person.uid === me.uid) return toast("ده حسابك أنت 😊");
   const id = makeDirectId(me.uid, person.uid);
   const chatRef = ref(db, `chats/${id}`);
-  const existing = await get(chatRef);
-  if (!existing.exists()) {
-    const now = Date.now();
-    const payload = { type:"direct", members:{[me.uid]:true,[person.uid]:true}, memberNames:{[me.uid]:$("myName").textContent,[person.uid]:person.name}, createdAt:now, updatedAt:now, lastMessage:"ابدأ المحادثة" };
-    // احفظ المحادثة أولاً؛ قواعد userChats تحتاج أن ترى عضوية المحادثة قبل ربطها بالطرفين.
-    await set(chatRef, payload);
+
+  try {
+    // الخطوة 1: تأكد أن سجل المحادثة موجود وصحيح.
+    const existing = await get(chatRef);
+    if (!existing.exists()) {
+      const now = Date.now();
+      const payload = {
+        type: "direct",
+        members: { [me.uid]: true, [person.uid]: true },
+        memberNames: {
+          [me.uid]: $("myName").textContent,
+          [person.uid]: person.name
+        },
+        createdAt: now,
+        updatedAt: now,
+        lastMessage: "ابدأ المحادثة"
+      };
+      try {
+        await set(chatRef, payload);
+      } catch (err) {
+        console.error("EGYPT CHAT: failed creating chats record", err);
+        throw new Error("رفض Firebase إنشاء سجل المحادثة (chats). راجع صلاحية chats/$chatId.");
+      }
+    } else {
+      const currentChat = existing.val();
+      if (currentChat.members?.[me.uid] !== true ||
+          currentChat.members?.[person.uid] !== true) {
+        console.error("EGYPT CHAT: existing chat has incomplete members", currentChat);
+        throw new Error("يوجد سجل محادثة قديم ناقص العضوية. لم أغيّر بياناته حفاظًا على الخصوصية.");
+      }
+    }
+
+    // الخطوة 2: أضف المحادثة لقائمة الحساب الحالي.
+    try {
+      await set(ref(db, `userChats/${me.uid}/${id}`), true);
+    } catch (err) {
+      console.error("EGYPT CHAT: failed adding current user's chat index", err);
+      throw new Error("تم إنشاء المحادثة، لكن Firebase رفض إضافتها لقائمة حسابك (userChats/حسابك).");
+    }
+
+    // الخطوة 3: أضف المحادثة لقائمة الطرف الآخر.
+    try {
+      await set(ref(db, `userChats/${person.uid}/${id}`), true);
+    } catch (err) {
+      console.error("EGYPT CHAT: failed adding recipient's chat index", err);
+      throw new Error("المحادثة اتعملت، لكن Firebase رفض إضافتها لقائمة الطرف الآخر. راجع قاعدة userChats.");
+    }
+
+    await openChat(id);
+  } catch (err) {
+    console.error("EGYPT CHAT: startDirectChat failed", err);
+    toast(err.message || prettyError(err));
   }
-  // كل طرف يضيف المحادثة إلى قائمته بعد إنشاء سجل المحادثة.
-  await set(ref(db, `userChats/${me.uid}/${id}`), true);
-  await set(ref(db, `userChats/${person.uid}/${id}`), true);
-  await openChat(id);
 }
 async function openChat(id) {
   try {
