@@ -34,7 +34,8 @@ function prettyError(error) {
     "auth/user-not-found":"الحساب غير موجود.",
     "auth/network-request-failed":"تأكد من اتصال الإنترنت.",
     "PERMISSION_DENIED":"Firebase رفض العملية بسبب قواعد قاعدة البيانات. انشر ملف database.rules.json الصحيح.",
-    "database/permission-denied":"صلاحيات Realtime Database تمنع إنشاء الحساب. راجع قواعد قاعدة البيانات.",
+    "database/permission-denied":"رفضت Realtime Database العملية. انشر قواعد database.rules.json من تبويب Rules واضغط Publish، وتأكد من databaseURL.",
+    "permission_denied":"رفضت Realtime Database العملية. انشر قواعد database.rules.json من تبويب Rules واضغط Publish، وتأكد من databaseURL.",
     "auth/operation-not-allowed":"فعّل Email/Password من Firebase Authentication > Sign-in method.",
     "auth/too-many-requests":"محاولات كثيرة؛ انتظر قليلًا ثم جرّب مرة أخرى."
   };
