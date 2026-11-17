@@ -34,7 +34,7 @@
       "$chatId": {
         ".read": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true",
         "$messageId": {
-          ".write": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && !data.exists() && newData.child('sender').val() == auth.uid",
+          ".write": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && ((!data.exists() && newData.child('sender').val() == auth.uid) || (data.exists() && data.child('sender').val() != auth.uid && newData.child('sender').val() == data.child('sender').val() && newData.child('text').val() == data.child('text').val() && newData.child('audioData').val() == data.child('audioData').val() && newData.child('readBy').child(auth.uid).isNumber() && newData.child('deliveredBy').child(auth.uid).isNumber()))",
           ".validate": "newData.hasChildren(['sender', 'createdAt']) && newData.child('sender').isString() && newData.child('createdAt').isNumber() && ((newData.hasChild('text') && newData.child('text').isString() && newData.child('text').val().length <= 4000) || (newData.hasChildren(['audioData', 'mimeType', 'duration']) && newData.child('audioData').isString() && newData.child('audioData').val().length <= 1200000 && newData.child('mimeType').isString() && newData.child('duration').isNumber() && newData.child('duration').val() <= 60))"
         }
       }

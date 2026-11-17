@@ -97,3 +97,17 @@ html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
 .voice-message audio { width:min(230px,55vw);height:36px; }
 .voice-message small { white-space:nowrap;color:#d8d5ef;font-size:10px; }
 @media(max-width:900px) { .voice-record-btn { width:38px;height:38px;flex-basis:38px; } .voice-message { min-width:min(230px,70vw); } }
+
+/* EGYPT CHAT: presence + message receipts + recorder visibility */
+.chat-heading small.online { color:#32e6a0 !important; font-weight:700; }
+.chat-heading small.offline { color:#a2a8bf !important; }
+.message time { display:flex; align-items:center; justify-content:flex-end; gap:5px; }
+.message-ticks { color:#aeb4c8; font-weight:800; letter-spacing:-3px; font-size:13px; }
+.message-ticks.read { color:#36b9ff; }
+.voice-record-btn { display:inline-flex !important; align-items:center; justify-content:center; min-width:44px; min-height:44px; font-size:20px; opacity:1 !important; visibility:visible !important; position:relative; z-index:2; }
+.voice-record-btn.recording { background:#d92d55 !important; color:#fff !important; }
+@media(max-width:600px) {
+  .composer { gap:6px; }
+  .voice-record-btn { min-width:42px; min-height:42px; flex:0 0 42px; }
+  #messageInput { min-width:0; }
+}

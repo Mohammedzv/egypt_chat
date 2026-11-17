@@ -141,8 +141,9 @@ function watchChatPresence(chat) {
   if (stopPresence) stopPresence();
   stopPresence = null;
   if (!chat || chat.type === "group") {
-    $("chatSubtitle").textContent = "مجموعة";
+    $("chatSubtitle").textContent = "👥 مجموعة";
     $("chatSubtitle").classList.remove("online");
+    $("chatSubtitle").classList.remove("offline");
     return;
   }
   const otherUid = Object.keys(chat.members || {}).find(uid => uid !== me.uid);
@@ -150,8 +151,9 @@ function watchChatPresence(chat) {
   stopPresence = onValue(ref(db, `status/${otherUid}`), snap => {
     const status = snap.val();
     const online = status?.state === "online";
-    $("chatSubtitle").textContent = online ? "متصل الآن" : "غير متصل";
+    $("chatSubtitle").textContent = online ? "🟢 متصل الآن" : "⚫ غير متصل";
     $("chatSubtitle").classList.toggle("online", online);
+    $("chatSubtitle").classList.toggle("offline", !online);
   }, () => { $("chatSubtitle").textContent = "حالة الاتصال غير متاحة"; });
 }
 
@@ -278,7 +280,21 @@ async function openChat(id) {
     $("chatAvatar").textContent = initials(chatName(chat));
     switchView("chat"); renderChats();
     if (stopMessages) stopMessages();
-    stopMessages = onValue(ref(db, `messages/${id}`), msgSnap => renderMessages(msgSnap.val() || {}), err => {
+    stopMessages = onValue(ref(db, `messages/${id}`), async msgSnap => {
+      const incoming = msgSnap.val() || {};
+      const readUpdates = {};
+      for (const [messageId, message] of Object.entries(incoming)) {
+        if (message.sender !== me.uid && !(message.readBy && message.readBy[me.uid])) {
+          readUpdates[`messages/${id}/${messageId}/deliveredBy/${me.uid}`] = Date.now();
+          readUpdates[`messages/${id}/${messageId}/readBy/${me.uid}`] = Date.now();
+        }
+      }
+      if (Object.keys(readUpdates).length) {
+        try { await update(ref(db), readUpdates); }
+        catch (err) { console.warn("Could not mark messages as read:", err); }
+      }
+      renderMessages(incoming);
+    }, err => {
       toast("مش قادرين نحمّل الرسائل: " + prettyError(err));
       $("messagesArea").innerHTML = `<div class="empty-state">تعذر تحميل الرسائل. راجع صلاحيات قاعدة البيانات.</div>`;
     });
@@ -292,7 +308,12 @@ function renderMessages(messages) {
     if (m.audioData && /^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(m.mimeType || "")) {
       body = `<div class="voice-message"><span class="voice-icon">🎙️</span><audio controls preload="metadata" src="data:${m.mimeType};base64,${m.audioData}"></audio><small>${Math.max(1,Number(m.duration)||1)} ثانية</small></div>`;
     } else body = `<p>${safeText(m.text||"")}</p>`;
-    return `<article class="message ${m.sender===me.uid?"mine":""}" data-id="${safeText(id)}">${body}<time>${m.sender===me.uid?"أنت":" "} · ${time}</time></article>`;
+    const isMine = m.sender === me.uid;
+    const otherUid = Object.keys(activeChat?.members || {}).find(uid => uid !== me.uid);
+    const wasRead = !!(isMine && otherUid && m.readBy?.[otherUid]);
+    const wasDelivered = !!(isMine && otherUid && m.deliveredBy?.[otherUid]);
+    const ticks = isMine ? `<span class="message-ticks ${wasRead ? "read" : ""}" title="${wasRead ? "تمت القراءة" : wasDelivered ? "تم الاستلام" : "تم الإرسال"}">${wasRead || wasDelivered ? "✓✓" : "✓"}</span>` : "";
+    return `<article class="message ${isMine?"mine":""}" data-id="${safeText(id)}">${body}<time>${time} ${ticks}</time></article>`;
   }).join("") : '<div class="empty-state">ابدأ أول رسالة 👋</div>';
   $("messagesArea").scrollTop = $("messagesArea").scrollHeight;
 }
@@ -346,7 +367,7 @@ $("messageForm").addEventListener("submit", async e => {
   try {
     const msgRef = push(ref(db, `messages/${activeChatId}`));
     const now = Date.now();
-    await set(msgRef, { sender:me.uid, text, createdAt:now });
+    await set(msgRef, { sender:me.uid, text, createdAt:now, status:"sent" });
     await update(ref(db, `chats/${activeChatId}`), { lastMessage:text.slice(0,90), updatedAt:now });
   } catch (err) {
     toast("لم يتم إرسال الرسالة: " + prettyError(err));
