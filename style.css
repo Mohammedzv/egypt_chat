@@ -86,3 +86,14 @@ html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
   .auth-card { padding: 15px 12px !important; }
   .auth-form h1 { font-size: 20px !important; }
 }
+
+/* Presence and voice notes */
+.chat-heading small.online { color:#36e0a0; }
+.chat-heading small:not(.online) { color:#9aa4c5; }
+.voice-record-btn { width:42px;height:42px;border-radius:13px;flex:0 0 42px;color:#c7b7ff;background:#201b45;border:1px solid #8b5cf655; }
+.voice-record-btn.recording { color:#fff;background:#d92d55;border-color:#ff7894;animation:recordPulse 1s infinite; }
+@keyframes recordPulse { 50% { box-shadow:0 0 0 6px #d92d5530; } }
+.voice-message { display:flex;align-items:center;gap:9px;min-width:min(260px,65vw); }
+.voice-message audio { width:min(230px,55vw);height:36px; }
+.voice-message small { white-space:nowrap;color:#d8d5ef;font-size:10px; }
+@media(max-width:900px) { .voice-record-btn { width:38px;height:38px;flex-basis:38px; } .voice-message { min-width:min(230px,70vw); } }

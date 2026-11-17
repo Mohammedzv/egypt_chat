@@ -5,7 +5,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getDatabase, ref, get, set, update, push, onValue, runTransaction, remove,
-  serverTimestamp
+  serverTimestamp, onDisconnect
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -13,8 +13,8 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 const $ = id => document.getElementById(id);
-let me = null, activeChatId = null, activeChat = null, stopMessages = null, stopChats = null;
-let chatsCache = [];
+let me = null, activeChatId = null, activeChat = null, stopMessages = null, stopChats = null, stopPresence = null, stopConnection = null, stopSearchedPresence = null;
+let chatsCache = [], recorder = null, recordChunks = [], recordStartedAt = 0, recordTimer = null;
 
 const show = (el, yes=true) => el.classList.toggle("hidden", !yes);
 function toast(message) {
@@ -119,14 +119,51 @@ async function activateUser(user) {
     $("myUsername").textContent = "@" + (profile.username || "");
     $("myAvatar").textContent = initials(profile.name || user.displayName);
     show($("authScreen"),false); show($("appScreen"));
+    startPresence();
     loadChats();
   } catch (err) { toast(prettyError(err)); }
+}
+
+async function startPresence() {
+  if (!me) return;
+  const connectedRef = ref(db, ".info/connected");
+  if (stopConnection) stopConnection();
+  stopConnection = onValue(connectedRef, async snap => {
+    if (snap.val() !== true || !me) return;
+    const statusRef = ref(db, `status/${me.uid}`);
+    try {
+      await onDisconnect(statusRef).set({ state: "offline", lastChanged: serverTimestamp() });
+      await set(statusRef, { state: "online", lastChanged: serverTimestamp() });
+    } catch (err) { console.warn("Presence update failed:", err); }
+  });
+}
+function watchChatPresence(chat) {
+  if (stopPresence) stopPresence();
+  stopPresence = null;
+  if (!chat || chat.type === "group") {
+    $("chatSubtitle").textContent = "مجموعة";
+    $("chatSubtitle").classList.remove("online");
+    return;
+  }
+  const otherUid = Object.keys(chat.members || {}).find(uid => uid !== me.uid);
+  if (!otherUid) return;
+  stopPresence = onValue(ref(db, `status/${otherUid}`), snap => {
+    const status = snap.val();
+    const online = status?.state === "online";
+    $("chatSubtitle").textContent = online ? "متصل الآن" : "غير متصل";
+    $("chatSubtitle").classList.toggle("online", online);
+  }, () => { $("chatSubtitle").textContent = "حالة الاتصال غير متاحة"; });
 }
 
 function cleanupListeners() {
   if (stopMessages) stopMessages();
   if (stopChats) stopChats();
-  stopMessages = stopChats = null;
+  if (stopPresence) stopPresence();
+  if (stopConnection) stopConnection();
+  if (stopSearchedPresence) stopSearchedPresence();
+  stopMessages = stopChats = stopPresence = stopConnection = stopSearchedPresence = null;
+  if (recordTimer) clearTimeout(recordTimer);
+  recorder = null; recordChunks = [];
   activeChatId = activeChat = null;
 }
 function switchView(view) {
@@ -236,7 +273,8 @@ async function openChat(id) {
     if (!chat.members?.[me.uid]) return toast("مش مسموح لك تدخل المحادثة.");
     activeChatId = id; activeChat = chat;
     $("chatTitle").textContent = chatName(chat);
-    $("chatSubtitle").textContent = chat.type === "group" ? "مجموعة" : "محادثة خاصة";
+    $("chatSubtitle").textContent = chat.type === "group" ? "مجموعة" : "جارٍ معرفة الحالة...";
+    watchChatPresence(chat);
     $("chatAvatar").textContent = initials(chatName(chat));
     switchView("chat"); renderChats();
     if (stopMessages) stopMessages();
@@ -248,10 +286,58 @@ async function openChat(id) {
 }
 function renderMessages(messages) {
   const list = Object.entries(messages).sort((a,b)=>(a[1].createdAt||0)-(b[1].createdAt||0));
-  $("messagesArea").innerHTML = list.length ? list.map(([id,m]) => `
-    <article class="message ${m.sender===me.uid?"mine":""}" data-id="${safeText(id)}"><p>${safeText(m.text||"")}</p><time>${m.sender===me.uid?"أنت":" "} · ${new Date(m.createdAt||Date.now()).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"})}</time></article>`).join("") : '<div class="empty-state">ابدأ أول رسالة 👋</div>';
+  $("messagesArea").innerHTML = list.length ? list.map(([id,m]) => {
+    const time = new Date(m.createdAt||Date.now()).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
+    let body = "";
+    if (m.audioData && /^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(m.mimeType || "")) {
+      body = `<div class="voice-message"><span class="voice-icon">🎙️</span><audio controls preload="metadata" src="data:${m.mimeType};base64,${m.audioData}"></audio><small>${Math.max(1,Number(m.duration)||1)} ثانية</small></div>`;
+    } else body = `<p>${safeText(m.text||"")}</p>`;
+    return `<article class="message ${m.sender===me.uid?"mine":""}" data-id="${safeText(id)}">${body}<time>${m.sender===me.uid?"أنت":" "} · ${time}</time></article>`;
+  }).join("") : '<div class="empty-state">ابدأ أول رسالة 👋</div>';
   $("messagesArea").scrollTop = $("messagesArea").scrollHeight;
 }
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(new Error("تعذر قراءة التسجيل."));
+    reader.readAsDataURL(blob);
+  });
+}
+async function toggleVoiceRecording() {
+  if (recorder && recorder.state === "recording") { recorder.stop(); return; }
+  if (!activeChatId || !activeChat?.members?.[me.uid]) return toast("افتح محادثة الأول.");
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast("المتصفح لا يدعم تسجيل الصوت. افتح الموقع عبر HTTPS وحدّث المتصفح.");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const preferred = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"];
+    const mimeType = preferred.find(t => MediaRecorder.isTypeSupported(t)) || "";
+    recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    recordChunks = []; recordStartedAt = Date.now();
+    recorder.ondataavailable = event => { if (event.data?.size) recordChunks.push(event.data); };
+    recorder.onerror = () => toast("حصل خطأ أثناء التسجيل.");
+    recorder.onstop = async () => {
+      if (recordTimer) clearTimeout(recordTimer);
+      const duration = Math.max(1, Math.round((Date.now()-recordStartedAt)/1000));
+      stream.getTracks().forEach(track => track.stop());
+      $("voiceRecordBtn").classList.remove("recording"); $("voiceRecordBtn").textContent = "🎙";
+      const blob = new Blob(recordChunks, { type: recorder?.mimeType || mimeType || "audio/webm" }); recordChunks=[];
+      if (!blob.size) return toast("التسجيل فارغ.");
+      if (blob.size > 850000) return toast("التسجيل كبير جدًا. سجّل مقطعًا أقصر.");
+      try {
+        const audioData = await blobToBase64(blob); const msgRef = push(ref(db, `messages/${activeChatId}`)); const now=Date.now();
+        await set(msgRef, { sender:me.uid, audioData, mimeType:blob.type.split(";")[0] || "audio/webm", duration:Math.min(duration,60), createdAt:now });
+        await update(ref(db, `chats/${activeChatId}`), { lastMessage:"🎙️ رسالة صوتية", updatedAt:now });
+        toast("تم إرسال التسجيل الصوتي.");
+      } catch(err) { toast("لم يتم إرسال التسجيل: "+prettyError(err)); }
+    };
+    recorder.start(); $("voiceRecordBtn").classList.add("recording"); $("voiceRecordBtn").textContent="■";
+    toast("جاري التسجيل... اضغط ■ للإرسال (حد أقصى 60 ثانية).");
+    recordTimer=setTimeout(()=>{ if(recorder?.state==="recording") recorder.stop(); },60000);
+  } catch(err) { toast(err.name==="NotAllowedError" ? "اسمح للموقع باستخدام الميكروفون من إعدادات المتصفح." : "تعذر تشغيل الميكروفون."); }
+}
+$("voiceRecordBtn").addEventListener("click", toggleVoiceRecording);
+
 $("messageForm").addEventListener("submit", async e => {
   e.preventDefault();
   const text = $("messageInput").value.trim();
@@ -279,7 +365,13 @@ async function searchPeople() {
     const userSnap = await get(ref(db, `users/${uid}`));
     if (!userSnap.exists()) { $("peopleResults").innerHTML = '<div class="empty-state">الحساب غير متاح حاليًا.</div>'; return; }
     const person = { uid, ...userSnap.val() };
-    $("peopleResults").innerHTML = `<div class="person-card"><div class="avatar">${safeText(initials(person.name))}</div><div class="person-info"><strong>${safeText(person.name)}</strong><small>@${safeText(person.username)}</small></div><button id="startChatBtn" class="primary">إرسال رسالة</button></div>`;
+    if (stopSearchedPresence) stopSearchedPresence();
+    $("peopleResults").innerHTML = `<div class="person-card"><div class="avatar">${safeText(initials(person.name))}</div><div class="person-info"><strong>${safeText(person.name)}</strong><small>@${safeText(person.username)}</small><small id="searchedPersonStatus">جارٍ معرفة الحالة...</small></div><button id="startChatBtn" class="primary">إرسال رسالة</button></div>`;
+    stopSearchedPresence = onValue(ref(db, `status/${uid}`), statusSnap => {
+      const online = statusSnap.val()?.state === "online";
+      const statusEl = $("searchedPersonStatus");
+      if (statusEl) { statusEl.textContent = online ? "● متصل الآن" : "○ غير متصل"; statusEl.classList.toggle("online", online); }
+    });
     $("startChatBtn").onclick = async () => { try { await startDirectChat(person); } catch(err) { toast(prettyError(err)); } };
   } catch (err) { $("peopleResults").innerHTML = `<div class="empty-state">${safeText(prettyError(err))}</div>`; }
 }
