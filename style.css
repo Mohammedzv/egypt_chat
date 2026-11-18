@@ -103,3 +103,13 @@ html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
 .file-attachment small{margin-inline-start:auto;white-space:nowrap}
 .composer .attach-btn,.composer .voice-record-btn{width:38px;height:38px;min-width:38px;border:1px solid var(--line);border-radius:12px;background:#171f43}
 @media(max-width:600px){.composer{gap:5px;padding:6px}.composer input{padding:7px;font-size:12px}.composer .attach-btn,.composer .voice-record-btn{width:34px;height:34px;min-width:34px}.send-btn{width:37px;height:37px}}
+
+/* Message and conversation action menus */
+.message{position:relative;padding-inline-end:38px}
+.message-more{position:absolute;inset-inline-end:7px;top:7px;border:0;background:transparent;color:inherit;opacity:.62;font-size:20px;cursor:pointer;border-radius:8px;width:26px;height:26px}
+.message-more:hover{background:rgba(120,140,180,.18);opacity:1}
+.action-list{display:grid;gap:9px;margin-top:18px}
+.action-list button{width:100%;text-align:right;border:1px solid var(--line,#26334f);border-radius:12px;padding:13px 14px;background:rgba(120,140,180,.08);color:inherit;font:inherit;cursor:pointer}
+.action-list button:hover{background:rgba(80,110,180,.18)}
+.action-list .danger-action{color:#ff7777;border-color:rgba(255,90,90,.3)}
+.edited-label{opacity:.65;font-size:10px}

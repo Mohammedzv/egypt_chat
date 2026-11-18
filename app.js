@@ -43,6 +43,22 @@ function prettyError(error) {
   };
   return map[code] || error?.message || "حصل خطأ غير متوقع.";
 }
+async function isBlocked(otherUid) {
+  if (!me || !otherUid) return false;
+  const [mine, theirs] = await Promise.all([
+    get(ref(db, `blocks/${me.uid}/${otherUid}`)),
+    get(ref(db, `blocks/${otherUid}/${me.uid}`))
+  ]);
+  return mine.exists() || theirs.exists();
+}
+function otherMemberUid(chat=activeChat) {
+  return chat?.type === "direct" ? Object.keys(chat.members || {}).find(uid => uid !== me.uid) : null;
+}
+function openActionModal(html) {
+  $("modalContent").innerHTML = html;
+  show($("modalLayer"));
+}
+function closeActionModal() { show($("modalLayer"), false); }
 function setAuthMessage(message) { $("authMessage").textContent = message; show($("authMessage"), true); }
 function hideAuthMessage() { show($("authMessage"), false); }
 
@@ -257,6 +273,7 @@ function renderChats() {
 function makeDirectId(uidA, uidB) { return "dm_" + [uidA,uidB].sort().map(encodeURIComponent).join("_"); }
 async function startDirectChat(person) {
   if (person.uid === me.uid) return toast("ده حسابك أنت 😊");
+  if (await isBlocked(person.uid)) return toast("لا يمكن بدء المحادثة؛ يوجد حظر بين الحسابين.");
   const id = makeDirectId(me.uid, person.uid);
   const chatRef = ref(db, `chats/${id}`);
 
@@ -344,15 +361,10 @@ function renderMessages(messages) {
     const isMine = m.sender === me.uid;
     const time = new Date(m.createdAt || Date.now()).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
     let body = "";
-    if (m.type === "audio" && m.downloadURL) {
-      body = `<div class="media-message"><span>🎙️ رسالة صوتية</span><audio controls preload="metadata" src="${safeText(m.downloadURL)}"></audio><small>${Math.max(1,Number(m.duration)||1)} ثانية</small></div>`;
-    } else if (m.type === "image" && m.downloadURL) {
-      body = `<a href="${safeText(m.downloadURL)}" target="_blank" rel="noopener"><img class="chat-image" src="${safeText(m.downloadURL)}" alt="صورة مرسلة" loading="lazy"></a>`;
-    } else if (m.type === "file" && m.downloadURL) {
-      body = `<a class="file-attachment" href="${safeText(m.downloadURL)}" target="_blank" rel="noopener" download="${safeText(m.name||"ملف")}">📎 ${safeText(m.name||"ملف مرفق")} <small>${formatBytes(m.size||0)}</small></a>`;
-    } else {
-      body = `<p>${safeText(m.text||"")}</p>`;
-    }
+    if (m.type === "audio" && m.downloadURL) body = `<div class="media-message"><span>🎙️ رسالة صوتية</span><audio controls preload="metadata" src="${safeText(m.downloadURL)}"></audio><small>${Math.max(1,Number(m.duration)||1)} ثانية</small></div>`;
+    else if (m.type === "image" && m.downloadURL) body = `<a href="${safeText(m.downloadURL)}" target="_blank" rel="noopener"><img class="chat-image" src="${safeText(m.downloadURL)}" alt="صورة مرسلة" loading="lazy"></a>`;
+    else if (m.type === "file" && m.downloadURL) body = `<a class="file-attachment" href="${safeText(m.downloadURL)}" target="_blank" rel="noopener" download="${safeText(m.name||"ملف")}">📎 ${safeText(m.name||"ملف مرفق")} <small>${formatBytes(m.size||0)}</small></a>`;
+    else body = `<p>${safeText(m.text||"")}${m.edited ? ' <small class="edited-label">(تم التعديل)</small>' : ''}</p>`;
     let ticks = "";
     if (isMine) {
       const recipients = Object.keys(activeChat?.members || {}).filter(uid => uid !== me.uid);
@@ -360,13 +372,38 @@ function renderMessages(messages) {
       const deliveredCount = recipients.filter(uid => !!m.deliveredBy?.[uid]).length;
       const allRead = recipients.length > 0 && readCount === recipients.length;
       const allDelivered = recipients.length > 0 && deliveredCount === recipients.length;
-      const label = allRead ? "تمت القراءة" : allDelivered ? "تم الاستلام" : deliveredCount ? `تم الاستلام ${deliveredCount}/${recipients.length}` : "تم الإرسال";
-      ticks = `<span class="message-ticks ${allRead ? "read" : ""}" title="${label}">${allDelivered || allRead ? "✓✓" : "✓"}</span>`;
+      ticks = `<span class="message-ticks ${allRead ? "read" : ""}" title="${allRead ? "تمت القراءة" : allDelivered ? "تم الاستلام" : "تم الإرسال"}">${allRead || allDelivered ? "✓✓" : "✓"}</span>`;
     }
-    return `<article class="message ${isMine?"mine":""}" data-id="${safeText(id)}">${body}<time>${time} ${ticks}</time></article>`;
+    return `<article class="message ${isMine?"mine":""}" data-id="${safeText(id)}"><button class="message-more" data-message-menu="${safeText(id)}" title="خيارات الرسالة">⋮</button>${body}<time>${time} ${ticks}</time></article>`;
   }).join("") : '<div class="empty-state">ابدأ أول رسالة 👋</div>';
+  document.querySelectorAll('[data-message-menu]').forEach(btn => btn.onclick = e => { e.stopPropagation(); showMessageMenu(btn.dataset.messageMenu); });
   $("messagesArea").scrollTop = $("messagesArea").scrollHeight;
 }
+function showMessageMenu(messageId) {
+  const msg = latestMessages[messageId];
+  if (!msg) return;
+  const mine = msg.sender === me.uid;
+  const canEdit = mine && (msg.type === "text" || !msg.type);
+  openActionModal(`<h2>خيارات الرسالة</h2><div class="action-list">
+    <button id="copyMsgAction">📋 نسخ الرسالة</button>
+    ${canEdit ? '<button id="editMsgAction">✏️ تعديل الرسالة</button>' : ''}
+    ${mine ? '<button id="deleteMsgAction" class="danger-action">🗑️ حذف رسالتي</button>' : ''}
+  </div>`);
+  $("copyMsgAction").onclick = async () => { try { await navigator.clipboard.writeText(msg.text || msg.downloadURL || msg.name || ""); toast("تم النسخ"); closeActionModal(); } catch { toast("المتصفح منع النسخ"); } };
+  if (canEdit) $("editMsgAction").onclick = async () => {
+    const updated = prompt("عدّل نص الرسالة:", msg.text || "");
+    if (updated === null) return;
+    if (!updated.trim()) return toast("الرسالة لا يمكن أن تكون فارغة.");
+    try { await update(ref(db, `messages/${activeChatId}/${messageId}`), { text: updated.trim().slice(0,4000), edited: true, editedAt: Date.now() }); closeActionModal(); toast("تم تعديل الرسالة"); }
+    catch(err) { toast("فشل التعديل: " + prettyError(err)); }
+  };
+  if (mine) $("deleteMsgAction").onclick = async () => {
+    if (!confirm("تحذف الرسالة نهائيًا؟")) return;
+    try { await remove(ref(db, `messages/${activeChatId}/${messageId}`)); closeActionModal(); toast("تم حذف الرسالة"); }
+    catch(err) { toast("فشل الحذف: " + prettyError(err)); }
+  };
+}
+
 function formatBytes(bytes) {
   if (!bytes) return "0 بايت";
   const units = ["بايت","KB","MB","GB"];
@@ -375,6 +412,8 @@ function formatBytes(bytes) {
 }
 async function uploadChatFile(file, type, extra = {}) {
   if (!file || !activeChatId || !activeChat?.members?.[me.uid]) return toast("افتح محادثة الأول.");
+  const otherUid = otherMemberUid();
+  if (otherUid && await isBlocked(otherUid)) return toast("الإرسال متوقف بسبب الحظر.");
   const maxSize = type === "image" ? 12 * 1024 * 1024 : 20 * 1024 * 1024;
   if (file.size > maxSize) return toast(`حجم الملف أكبر من الحد المسموح (${type==="image"?"12":"20"} ميجابايت).`);
   if (type === "image" && !file.type.startsWith("image/")) return toast("اختار صورة صحيحة.");
@@ -445,6 +484,8 @@ $("messageForm").addEventListener("submit", async e => {
   e.preventDefault();
   const text = $("messageInput").value.trim();
   if (!text || !activeChatId || !activeChat?.members?.[me.uid]) return;
+  const otherUid = otherMemberUid();
+  if (otherUid && await isBlocked(otherUid)) return toast("الإرسال متوقف بسبب الحظر.");
   $("messageInput").value = "";
   try {
     const msgRef = push(ref(db, `messages/${activeChatId}`));
@@ -491,6 +532,56 @@ async function createGroup() {
     await openChat(id);
   } catch(err) { toast(prettyError(err)); }
 }
+async function showChatMenu() {
+  if (!activeChat) return;
+  const otherUid = otherMemberUid();
+  const mutedSnap = await get(ref(db, `mutedChats/${me.uid}/${activeChatId}`));
+  const blockedSnap = otherUid ? await get(ref(db, `blocks/${me.uid}/${otherUid}`)) : null;
+  const canManage = activeChat.type === "group" && activeChat.owner === me.uid;
+  openActionModal(`<h2>خيارات المحادثة</h2><div class="action-list">
+    <button id="chatInfoAction">ℹ️ معلومات المحادثة</button>
+    <button id="muteChatAction">${mutedSnap.exists() ? "🔔 إلغاء كتم المحادثة" : "🔕 كتم المحادثة"}</button>
+    ${otherUid ? `<button id="blockUserAction" class="danger-action">${blockedSnap?.exists() ? "🛡️ فك الحظر" : "🚫 حظر المستخدم"}</button>` : ''}
+    ${canManage ? '<button id="addGroupMemberAction">➕ إضافة أشخاص للمجموعة</button>' : ''}
+  </div>`);
+  $("chatInfoAction").onclick = async () => {
+    let details = "";
+    if (activeChat.type === "group") {
+      const members = Object.keys(activeChat.members || {});
+      const names = await Promise.all(members.map(async uid => { const snap=await get(ref(db,`users/${uid}/name`)); return snap.val() || activeChat.memberNames?.[uid] || "عضو"; }));
+      details = `<p>النوع: مجموعة</p><p>المالك: ${safeText(activeChat.memberNames?.[activeChat.owner] || "صاحب المجموعة")}</p><p>عدد الأعضاء: ${members.length}</p><ul>${names.map(n=>`<li>${safeText(n)}</li>`).join("")}</ul>`;
+    } else {
+      const user = await get(ref(db, `users/${otherUid}`)); const person=user.val()||{};
+      details = `<p>الاسم: ${safeText(person.name || activeChat.memberNames?.[otherUid] || "مستخدم")}</p><p>اسم المستخدم: @${safeText(person.username || "غير متاح")}</p><p>نوع المحادثة: خاصة</p>`;
+    }
+    openActionModal(`<h2>معلومات المحادثة</h2>${details}`);
+  };
+  $("muteChatAction").onclick = async () => { try { if(mutedSnap.exists()) await remove(ref(db,`mutedChats/${me.uid}/${activeChatId}`)); else await set(ref(db,`mutedChats/${me.uid}/${activeChatId}`),true); closeActionModal(); toast(mutedSnap.exists()?"تم إلغاء الكتم":"تم كتم المحادثة"); } catch(e){toast(prettyError(e));} };
+  if (otherUid) $("blockUserAction").onclick = async () => { try { if(blockedSnap?.exists()) await remove(ref(db,`blocks/${me.uid}/${otherUid}`)); else await set(ref(db,`blocks/${me.uid}/${otherUid}`),true); closeActionModal(); toast(blockedSnap?.exists()?"تم فك الحظر":"تم حظر المستخدم"); } catch(e){toast(prettyError(e));} };
+  if (canManage) $("addGroupMemberAction").onclick = addGroupMember;
+}
+async function addGroupMember() {
+  const username = prompt("اكتب يوزر الشخص الذي تريد إضافته للمجموعة:");
+  if (!username?.trim()) return;
+  const clean = username.trim().toLowerCase().replace(/^@/,"");
+  if (!/^[a-z0-9_]{3,20}$/.test(clean)) return toast("اكتب يوزر صحيح.");
+  try {
+    const idx = await get(ref(db,`usernameIndex/${clean}`));
+    if (!idx.exists()) return toast("مش لاقيين المستخدم ده.");
+    const uid = idx.val();
+    if (uid === me.uid) return toast("أنت موجود في المجموعة بالفعل.");
+    if (activeChat.members?.[uid]) return toast("الشخص موجود بالفعل في المجموعة.");
+    const profile = await get(ref(db,`users/${uid}`));
+    if (!profile.exists()) return toast("الحساب غير متاح.");
+    const now = Date.now();
+    await update(ref(db,`chats/${activeChatId}`), { [`members/${uid}`]: true, [`memberNames/${uid}`]: profile.val().name || clean, updatedAt: now });
+    await set(ref(db,`userChats/${uid}/${activeChatId}`),true);
+    activeChat.members[uid] = true;
+    activeChat.memberNames = activeChat.memberNames || {}; activeChat.memberNames[uid] = profile.val().name || clean;
+    closeActionModal(); toast("تمت إضافة الشخص للمجموعة 🎉");
+  } catch(err) { toast("تعذرت إضافة العضو: " + prettyError(err)); }
+}
+$("chatMore").onclick = showChatMenu;
 $("profileBtn").onclick = () => {
   $("modalContent").innerHTML = `<h2>الملف الشخصي</h2><label>اسم العرض</label><input id="editName" maxlength="30" value="${safeText($("myName").textContent)}"><label>اسم المستخدم</label><input disabled value="${safeText($("myUsername").textContent)}"><small>اليوزر ثابت في النسخة دي لتجنب تغيير روابط المحادثات.</small><button id="saveProfile" class="primary wide">حفظ التعديلات</button>`;
   show($("modalLayer"));
