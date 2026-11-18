@@ -34,16 +34,36 @@
       "$chatId": {
         ".read": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true",
         "$messageId": {
-          ".write": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && ((!data.exists() && newData.child('sender').val() == auth.uid) || (data.exists() && data.child('sender').val() != auth.uid && newData.child('sender').val() == data.child('sender').val() && newData.child('text').val() == data.child('text').val() && newData.child('audioData').val() == data.child('audioData').val() && newData.child('readBy').child(auth.uid).isNumber() && newData.child('deliveredBy').child(auth.uid).isNumber()))",
-          ".validate": "newData.hasChildren(['sender', 'createdAt']) && newData.child('sender').isString() && newData.child('createdAt').isNumber() && ((newData.hasChild('text') && newData.child('text').isString() && newData.child('text').val().length <= 4000) || (newData.hasChildren(['audioData', 'mimeType', 'duration']) && newData.child('audioData').isString() && newData.child('audioData').val().length <= 1200000 && newData.child('mimeType').isString() && newData.child('duration').isNumber() && newData.child('duration').val() <= 60))"
+          ".write": "auth != null && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && !data.exists() && newData.child('sender').val() == auth.uid",
+          ".validate": "newData.hasChildren(['sender', 'createdAt']) && newData.child('sender').isString() && newData.child('createdAt').isNumber() && (( !newData.hasChild('type') && newData.child('text').isString() && newData.child('text').val().length <= 4000 ) || (newData.child('type').val() == 'text' && newData.child('text').isString() && newData.child('text').val().length <= 4000) || (newData.child('type').val() == 'audio' && newData.child('downloadURL').isString() && newData.child('storagePath').isString() && newData.child('mimeType').isString() && newData.child('size').isNumber() && newData.child('size').val() <= 20971520 && newData.child('duration').isNumber()) || ((newData.child('type').val() == 'image' || newData.child('type').val() == 'file') && newData.child('downloadURL').isString() && newData.child('storagePath').isString() && newData.child('mimeType').isString() && newData.child('name').isString() && newData.child('size').isNumber() && newData.child('size').val() <= 20971520))",
+          "deliveredBy": {
+            "$readerUid": {
+              ".write": "auth != null && auth.uid == $readerUid && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && root.child('messages').child($chatId).child($messageId).child('sender').val() != auth.uid",
+              ".validate": "newData.isNumber()"
+            }
+          },
+          "readBy": {
+            "$readerUid": {
+              ".write": "auth != null && auth.uid == $readerUid && root.child('chats').child($chatId).child('members').child(auth.uid).val() == true && root.child('messages').child($chatId).child($messageId).child('sender').val() != auth.uid",
+              ".validate": "newData.isNumber()"
+            }
+          }
         }
       }
     },
     "status": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid == $uid",
-        ".validate": "newData.hasChildren(['state', 'lastChanged']) && (newData.child('state').val() == 'online' || newData.child('state').val() == 'offline')"
+        "connections": {
+          "$connectionId": {
+            ".write": "auth != null && auth.uid == $uid",
+            ".validate": "newData.isBoolean()"
+          }
+        },
+        "lastChanged": {
+          ".write": "auth != null && auth.uid == $uid",
+          ".validate": "newData.isNumber()"
+        }
       }
     }
   }

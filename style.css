@@ -87,27 +87,19 @@ html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
   .auth-form h1 { font-size: 20px !important; }
 }
 
-/* Presence and voice notes */
-.chat-heading small.online { color:#36e0a0; }
-.chat-heading small:not(.online) { color:#9aa4c5; }
-.voice-record-btn { width:42px;height:42px;border-radius:13px;flex:0 0 42px;color:#c7b7ff;background:#201b45;border:1px solid #8b5cf655; }
-.voice-record-btn.recording { color:#fff;background:#d92d55;border-color:#ff7894;animation:recordPulse 1s infinite; }
-@keyframes recordPulse { 50% { box-shadow:0 0 0 6px #d92d5530; } }
-.voice-message { display:flex;align-items:center;gap:9px;min-width:min(260px,65vw); }
-.voice-message audio { width:min(230px,55vw);height:36px; }
-.voice-message small { white-space:nowrap;color:#d8d5ef;font-size:10px; }
-@media(max-width:900px) { .voice-record-btn { width:38px;height:38px;flex-basis:38px; } .voice-message { min-width:min(230px,70vw); } }
-
-/* EGYPT CHAT: presence + message receipts + recorder visibility */
-.chat-heading small.online { color:#32e6a0 !important; font-weight:700; }
-.chat-heading small.offline { color:#a2a8bf !important; }
-.message time { display:flex; align-items:center; justify-content:flex-end; gap:5px; }
-.message-ticks { color:#aeb4c8; font-weight:800; letter-spacing:-3px; font-size:13px; }
-.message-ticks.read { color:#36b9ff; }
-.voice-record-btn { display:inline-flex !important; align-items:center; justify-content:center; min-width:44px; min-height:44px; font-size:20px; opacity:1 !important; visibility:visible !important; position:relative; z-index:2; }
-.voice-record-btn.recording { background:#d92d55 !important; color:#fff !important; }
-@media(max-width:600px) {
-  .composer { gap:6px; }
-  .voice-record-btn { min-width:42px; min-height:42px; flex:0 0 42px; }
-  #messageInput { min-width:0; }
-}
+/* Presence, delivery receipts and chat media */
+.chat-heading small.online,.online{color:#36e2a3!important}
+.chat-heading small.offline,.offline{color:#a5acc8!important}
+.message-ticks{display:inline-block;margin-inline-start:5px;color:#d9def5;font-size:12px;letter-spacing:-3px;direction:ltr}
+.message-ticks.read{color:#48d7ff}
+.voice-record-btn.recording{background:#a83255!important;color:#fff;animation:recordPulse 1s infinite}
+@keyframes recordPulse{50%{box-shadow:0 0 0 7px #ff426622}}
+.attach-btn{flex:0 0 38px;font-size:17px;color:#b8c6ff}
+.media-message{display:flex;flex-direction:column;gap:7px;min-width:min(240px,55vw)}
+.media-message audio{width:100%;max-width:300px;height:38px}
+.media-message small,.file-attachment small{font-size:10px;color:#cbd3f4}
+.chat-image{display:block;max-width:min(300px,55vw);max-height:320px;object-fit:contain;border-radius:12px}
+.file-attachment{display:flex;align-items:center;gap:9px;color:#fff;text-decoration:none;background:#ffffff12;border:1px solid #ffffff20;padding:12px;border-radius:12px;max-width:min(300px,60vw);font-size:13px}
+.file-attachment small{margin-inline-start:auto;white-space:nowrap}
+.composer .attach-btn,.composer .voice-record-btn{width:38px;height:38px;min-width:38px;border:1px solid var(--line);border-radius:12px;background:#171f43}
+@media(max-width:600px){.composer{gap:5px;padding:6px}.composer input{padding:7px;font-size:12px}.composer .attach-btn,.composer .voice-record-btn{width:34px;height:34px;min-width:34px}.send-btn{width:37px;height:37px}}

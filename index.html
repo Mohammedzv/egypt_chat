@@ -92,10 +92,14 @@
         </header>
         <div id="messagesArea" class="messages-area"><div class="empty-state">ابدأ أول رسالة 👋</div></div>
         <form id="messageForm" class="composer">
-          <button type="button" class="icon-btn emoji-btn" id="emojiBtn">☺</button>
+          <button type="button" class="icon-btn emoji-btn" id="emojiBtn" title="إيموجي">☺</button>
+          <button type="button" class="icon-btn attach-btn" id="imageFileBtn" title="إرسال صورة" aria-label="إرسال صورة">▧</button>
+          <button type="button" class="icon-btn attach-btn" id="fileBtn" title="إرسال ملف" aria-label="إرسال ملف">📎</button>
           <button type="button" class="icon-btn voice-record-btn" id="voiceRecordBtn" title="تسجيل رسالة صوتية" aria-label="تسجيل رسالة صوتية">🎙</button>
           <input id="messageInput" autocomplete="off" maxlength="4000" placeholder="اكتب رسالتك هنا...">
           <button type="submit" class="send-btn" aria-label="إرسال">➤</button>
+          <input id="imageInput" type="file" accept="image/*" hidden>
+          <input id="fileInput" type="file" hidden>
         </form>
       </section>
     </section>

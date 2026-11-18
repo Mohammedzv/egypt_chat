@@ -7,14 +7,16 @@ import {
   getDatabase, ref, get, set, update, push, onValue, runTransaction, remove,
   serverTimestamp, onDisconnect
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
+const storage = getStorage(app);
 const $ = id => document.getElementById(id);
-let me = null, activeChatId = null, activeChat = null, stopMessages = null, stopChats = null, stopPresence = null, stopConnection = null, stopSearchedPresence = null;
-let chatsCache = [], recorder = null, recordChunks = [], recordStartedAt = 0, recordTimer = null;
+let me = null, activeChatId = null, activeChat = null, stopMessages = null, stopChats = null, stopPresence = null, stopConnection = null;
+let chatsCache = [], deliveryStops = {}, recorder = null, recordChunks = [], recordStartedAt = 0, recordTimer = null, latestMessages = {}, presenceConnectionRef = null;
 
 const show = (el, yes=true) => el.classList.toggle("hidden", !yes);
 function toast(message) {
@@ -101,7 +103,7 @@ async function deleteNewAccount(user) {
 
 onAuthStateChanged(auth, async user => {
   if (!user) {
-    me = null; cleanupListeners(); show($("authScreen")); show($("appScreen"),false); return;
+    cleanupListeners(); me = null; show($("authScreen")); show($("appScreen"),false); return;
   }
   me = user;
   await activateUser(user);
@@ -124,49 +126,92 @@ async function activateUser(user) {
   } catch (err) { toast(prettyError(err)); }
 }
 
-async function startPresence() {
-  if (!me) return;
-  const connectedRef = ref(db, ".info/connected");
+function cleanupListeners() {
+  if (presenceConnectionRef && me) {
+    remove(presenceConnectionRef).catch(() => {});
+    set(ref(db, `status/${me.uid}/lastChanged`), serverTimestamp()).catch(() => {});
+  }
+  presenceConnectionRef = null;
+  if (stopMessages) stopMessages();
+  if (stopChats) stopChats();
+  if (stopPresence) stopPresence();
   if (stopConnection) stopConnection();
-  stopConnection = onValue(connectedRef, async snap => {
-    if (snap.val() !== true || !me) return;
-    const statusRef = ref(db, `status/${me.uid}`);
+  Object.values(deliveryStops).forEach(stop => { try { stop(); } catch {} });
+  deliveryStops = {};
+  stopMessages = stopChats = stopPresence = stopConnection = null;
+  if (recordTimer) clearTimeout(recordTimer);
+  if (recorder && recorder.state !== "inactive") {
+    try { recorder.stop(); } catch {}
+  }
+  recorder = null; recordChunks = [];
+  activeChatId = activeChat = null;
+  latestMessages = {};
+}
+async function startPresence() {
+  if (!me || stopConnection) return;
+  stopConnection = onValue(ref(db, ".info/connected"), async snap => {
+    if (snap.val() !== true || !me) { presenceConnectionRef = null; return; }
     try {
-      await onDisconnect(statusRef).set({ state: "offline", lastChanged: serverTimestamp() });
-      await set(statusRef, { state: "online", lastChanged: serverTimestamp() });
-    } catch (err) { console.warn("Presence update failed:", err); }
+      const connectionsRef = ref(db, `status/${me.uid}/connections`);
+      const connectionKey = push(connectionsRef).key;
+      const connectionRef = ref(db, `status/${me.uid}/connections/${connectionKey}`);
+      const lastChangedRef = ref(db, `status/${me.uid}/lastChanged`);
+      await onDisconnect(connectionRef).remove();
+      await onDisconnect(lastChangedRef).set(serverTimestamp());
+      await set(connectionRef, true);
+      await set(lastChangedRef, serverTimestamp());
+      presenceConnectionRef = connectionRef;
+    } catch (err) { console.warn("Presence update failed", err); }
   });
 }
 function watchChatPresence(chat) {
   if (stopPresence) stopPresence();
   stopPresence = null;
-  if (!chat || chat.type === "group") {
-    $("chatSubtitle").textContent = "👥 مجموعة";
-    $("chatSubtitle").classList.remove("online");
-    $("chatSubtitle").classList.remove("offline");
+  const sub = $("chatSubtitle");
+  if (chat.type === "group") {
+    sub.textContent = "👥 مجموعة";
+    sub.classList.remove("online", "offline");
     return;
   }
   const otherUid = Object.keys(chat.members || {}).find(uid => uid !== me.uid);
   if (!otherUid) return;
   stopPresence = onValue(ref(db, `status/${otherUid}`), snap => {
     const status = snap.val();
-    const online = status?.state === "online";
-    $("chatSubtitle").textContent = online ? "🟢 متصل الآن" : "⚫ غير متصل";
-    $("chatSubtitle").classList.toggle("online", online);
-    $("chatSubtitle").classList.toggle("offline", !online);
-  }, () => { $("chatSubtitle").textContent = "حالة الاتصال غير متاحة"; });
+    const online = !!status?.connections && Object.keys(status.connections).length > 0;
+    sub.textContent = online ? "🟢 متصل الآن" : status?.lastChanged ? `آخر ظهور ${new Date(status.lastChanged).toLocaleString("ar-EG")}` : "⚫ غير متصل";
+    sub.classList.toggle("online", online);
+    sub.classList.toggle("offline", !online);
+  }, () => { sub.textContent = "حالة الاتصال غير متاحة"; });
 }
-
-function cleanupListeners() {
-  if (stopMessages) stopMessages();
-  if (stopChats) stopChats();
-  if (stopPresence) stopPresence();
-  if (stopConnection) stopConnection();
-  if (stopSearchedPresence) stopSearchedPresence();
-  stopMessages = stopChats = stopPresence = stopConnection = stopSearchedPresence = null;
-  if (recordTimer) clearTimeout(recordTimer);
-  recorder = null; recordChunks = [];
-  activeChatId = activeChat = null;
+function markDelivered(chatId, messages) {
+  if (!me || !messages) return;
+  const updates = {};
+  for (const [messageId, message] of Object.entries(messages)) {
+    if (message.sender !== me.uid && !message.deliveredBy?.[me.uid]) {
+      updates[`messages/${chatId}/${messageId}/deliveredBy/${me.uid}`] = Date.now();
+    }
+  }
+  if (Object.keys(updates).length) update(ref(db), updates).catch(err => console.warn("Delivery receipt failed", err));
+}
+function markRead(chatId, messages) {
+  if (!me || !messages || document.visibilityState !== "visible" || activeChatId !== chatId) return;
+  const updates = {};
+  for (const [messageId, message] of Object.entries(messages)) {
+    if (message.sender !== me.uid && !message.readBy?.[me.uid]) {
+      updates[`messages/${chatId}/${messageId}/readBy/${me.uid}`] = Date.now();
+    }
+  }
+  if (Object.keys(updates).length) update(ref(db), updates).catch(err => console.warn("Read receipt failed", err));
+}
+function attachDeliveryListeners(ids) {
+  const keep = new Set(ids);
+  for (const [id, stop] of Object.entries(deliveryStops)) {
+    if (!keep.has(id)) { stop(); delete deliveryStops[id]; }
+  }
+  for (const id of ids) {
+    if (deliveryStops[id]) continue;
+    deliveryStops[id] = onValue(ref(db, `messages/${id}`), snap => markDelivered(id, snap.val() || {}));
+  }
 }
 function switchView(view) {
   show($("welcomeView"), view === "home");
@@ -181,6 +226,7 @@ function loadChats() {
   if (stopChats) stopChats();
   stopChats = onValue(ref(db, `userChats/${me.uid}`), async snap => {
     const ids = Object.keys(snap.val() || {});
+    attachDeliveryListeners(ids);
     const items = await Promise.all(ids.map(async id => {
       const chatSnap = await get(ref(db, `chats/${id}`));
       return chatSnap.exists() ? { id, ...chatSnap.val() } : null;
@@ -275,24 +321,16 @@ async function openChat(id) {
     if (!chat.members?.[me.uid]) return toast("مش مسموح لك تدخل المحادثة.");
     activeChatId = id; activeChat = chat;
     $("chatTitle").textContent = chatName(chat);
-    $("chatSubtitle").textContent = chat.type === "group" ? "مجموعة" : "جارٍ معرفة الحالة...";
+    $("chatSubtitle").textContent = chat.type === "group" ? "👥 مجموعة" : "جارٍ معرفة الحالة...";
     watchChatPresence(chat);
     $("chatAvatar").textContent = initials(chatName(chat));
     switchView("chat"); renderChats();
     if (stopMessages) stopMessages();
-    stopMessages = onValue(ref(db, `messages/${id}`), async msgSnap => {
+    stopMessages = onValue(ref(db, `messages/${id}`), msgSnap => {
       const incoming = msgSnap.val() || {};
-      const readUpdates = {};
-      for (const [messageId, message] of Object.entries(incoming)) {
-        if (message.sender !== me.uid && !(message.readBy && message.readBy[me.uid])) {
-          readUpdates[`messages/${id}/${messageId}/deliveredBy/${me.uid}`] = Date.now();
-          readUpdates[`messages/${id}/${messageId}/readBy/${me.uid}`] = Date.now();
-        }
-      }
-      if (Object.keys(readUpdates).length) {
-        try { await update(ref(db), readUpdates); }
-        catch (err) { console.warn("Could not mark messages as read:", err); }
-      }
+      latestMessages = incoming;
+      markDelivered(id, incoming);
+      markRead(id, incoming);
       renderMessages(incoming);
     }, err => {
       toast("مش قادرين نحمّل الرسائل: " + prettyError(err));
@@ -303,62 +341,106 @@ async function openChat(id) {
 function renderMessages(messages) {
   const list = Object.entries(messages).sort((a,b)=>(a[1].createdAt||0)-(b[1].createdAt||0));
   $("messagesArea").innerHTML = list.length ? list.map(([id,m]) => {
-    const time = new Date(m.createdAt||Date.now()).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
-    let body = "";
-    if (m.audioData && /^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(m.mimeType || "")) {
-      body = `<div class="voice-message"><span class="voice-icon">🎙️</span><audio controls preload="metadata" src="data:${m.mimeType};base64,${m.audioData}"></audio><small>${Math.max(1,Number(m.duration)||1)} ثانية</small></div>`;
-    } else body = `<p>${safeText(m.text||"")}</p>`;
     const isMine = m.sender === me.uid;
-    const otherUid = Object.keys(activeChat?.members || {}).find(uid => uid !== me.uid);
-    const wasRead = !!(isMine && otherUid && m.readBy?.[otherUid]);
-    const wasDelivered = !!(isMine && otherUid && m.deliveredBy?.[otherUid]);
-    const ticks = isMine ? `<span class="message-ticks ${wasRead ? "read" : ""}" title="${wasRead ? "تمت القراءة" : wasDelivered ? "تم الاستلام" : "تم الإرسال"}">${wasRead || wasDelivered ? "✓✓" : "✓"}</span>` : "";
+    const time = new Date(m.createdAt || Date.now()).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
+    let body = "";
+    if (m.type === "audio" && m.downloadURL) {
+      body = `<div class="media-message"><span>🎙️ رسالة صوتية</span><audio controls preload="metadata" src="${safeText(m.downloadURL)}"></audio><small>${Math.max(1,Number(m.duration)||1)} ثانية</small></div>`;
+    } else if (m.type === "image" && m.downloadURL) {
+      body = `<a href="${safeText(m.downloadURL)}" target="_blank" rel="noopener"><img class="chat-image" src="${safeText(m.downloadURL)}" alt="صورة مرسلة" loading="lazy"></a>`;
+    } else if (m.type === "file" && m.downloadURL) {
+      body = `<a class="file-attachment" href="${safeText(m.downloadURL)}" target="_blank" rel="noopener" download="${safeText(m.name||"ملف")}">📎 ${safeText(m.name||"ملف مرفق")} <small>${formatBytes(m.size||0)}</small></a>`;
+    } else {
+      body = `<p>${safeText(m.text||"")}</p>`;
+    }
+    let ticks = "";
+    if (isMine) {
+      const recipients = Object.keys(activeChat?.members || {}).filter(uid => uid !== me.uid);
+      const readCount = recipients.filter(uid => !!m.readBy?.[uid]).length;
+      const deliveredCount = recipients.filter(uid => !!m.deliveredBy?.[uid]).length;
+      const allRead = recipients.length > 0 && readCount === recipients.length;
+      const allDelivered = recipients.length > 0 && deliveredCount === recipients.length;
+      const label = allRead ? "تمت القراءة" : allDelivered ? "تم الاستلام" : deliveredCount ? `تم الاستلام ${deliveredCount}/${recipients.length}` : "تم الإرسال";
+      ticks = `<span class="message-ticks ${allRead ? "read" : ""}" title="${label}">${allDelivered || allRead ? "✓✓" : "✓"}</span>`;
+    }
     return `<article class="message ${isMine?"mine":""}" data-id="${safeText(id)}">${body}<time>${time} ${ticks}</time></article>`;
   }).join("") : '<div class="empty-state">ابدأ أول رسالة 👋</div>';
   $("messagesArea").scrollTop = $("messagesArea").scrollHeight;
 }
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-    reader.onerror = () => reject(new Error("تعذر قراءة التسجيل."));
-    reader.readAsDataURL(blob);
-  });
+function formatBytes(bytes) {
+  if (!bytes) return "0 بايت";
+  const units = ["بايت","KB","MB","GB"];
+  const i = Math.min(Math.floor(Math.log(bytes)/Math.log(1024)), units.length-1);
+  return `${(bytes/Math.pow(1024,i)).toFixed(i===0?0:1)} ${units[i]}`;
+}
+async function uploadChatFile(file, type, extra = {}) {
+  if (!file || !activeChatId || !activeChat?.members?.[me.uid]) return toast("افتح محادثة الأول.");
+  const maxSize = type === "image" ? 12 * 1024 * 1024 : 20 * 1024 * 1024;
+  if (file.size > maxSize) return toast(`حجم الملف أكبر من الحد المسموح (${type==="image"?"12":"20"} ميجابايت).`);
+  if (type === "image" && !file.type.startsWith("image/")) return toast("اختار صورة صحيحة.");
+  const messageRef = push(ref(db, `messages/${activeChatId}`));
+  const safeName = file.name.replace(/[^؀-ۿa-zA-Z0-9._-]/g, "_").slice(0,100) || "attachment";
+  const path = `chatMedia/${activeChatId}/${me.uid}/${messageRef.key}_${safeName}`;
+  try {
+    toast("جاري رفع الملف...");
+    const fileRef = storageRef(storage, path);
+    const uploaded = await uploadBytes(fileRef, file, { contentType: file.type || "application/octet-stream" });
+    const url = await getDownloadURL(uploaded.ref);
+    const now = Date.now();
+    await set(messageRef, {
+      sender: me.uid, type, name: file.name, size: file.size,
+      mimeType: file.type || "application/octet-stream",
+      storagePath: path, downloadURL: url, createdAt: now,
+      ...(Number.isFinite(extra.duration) ? { duration: extra.duration } : {})
+    });
+    await update(ref(db, `chats/${activeChatId}`), {
+      lastMessage: type === "image" ? "📷 صورة" : type === "audio" ? "🎙️ رسالة صوتية" : "📎 ملف مرفق", updatedAt: now
+    });
+    toast(type === "image" ? "تم إرسال الصورة." : "تم إرسال الملف.");
+  } catch (err) {
+    console.error("Upload failed", err);
+    toast("فشل رفع الملف: " + (err.code || err.message || "تأكد من تفعيل Firebase Storage وقواعده."));
+  }
 }
 async function toggleVoiceRecording() {
   if (recorder && recorder.state === "recording") { recorder.stop(); return; }
   if (!activeChatId || !activeChat?.members?.[me.uid]) return toast("افتح محادثة الأول.");
-  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast("المتصفح لا يدعم تسجيل الصوت. افتح الموقع عبر HTTPS وحدّث المتصفح.");
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast("التسجيل يحتاج متصفح حديث وموقع HTTPS مع إذن الميكروفون.");
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const preferred = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"];
-    const mimeType = preferred.find(t => MediaRecorder.isTypeSupported(t)) || "";
-    recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const types = ["audio/webm;codecs=opus","audio/ogg;codecs=opus","audio/mp4"];
+    const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || "";
+    recorder = mimeType ? new MediaRecorder(stream,{mimeType}) : new MediaRecorder(stream);
     recordChunks = []; recordStartedAt = Date.now();
-    recorder.ondataavailable = event => { if (event.data?.size) recordChunks.push(event.data); };
+    recorder.ondataavailable = e => { if (e.data?.size) recordChunks.push(e.data); };
     recorder.onerror = () => toast("حصل خطأ أثناء التسجيل.");
     recorder.onstop = async () => {
       if (recordTimer) clearTimeout(recordTimer);
-      const duration = Math.max(1, Math.round((Date.now()-recordStartedAt)/1000));
-      stream.getTracks().forEach(track => track.stop());
-      $("voiceRecordBtn").classList.remove("recording"); $("voiceRecordBtn").textContent = "🎙";
-      const blob = new Blob(recordChunks, { type: recorder?.mimeType || mimeType || "audio/webm" }); recordChunks=[];
-      if (!blob.size) return toast("التسجيل فارغ.");
-      if (blob.size > 850000) return toast("التسجيل كبير جدًا. سجّل مقطعًا أقصر.");
-      try {
-        const audioData = await blobToBase64(blob); const msgRef = push(ref(db, `messages/${activeChatId}`)); const now=Date.now();
-        await set(msgRef, { sender:me.uid, audioData, mimeType:blob.type.split(";")[0] || "audio/webm", duration:Math.min(duration,60), createdAt:now });
-        await update(ref(db, `chats/${activeChatId}`), { lastMessage:"🎙️ رسالة صوتية", updatedAt:now });
-        toast("تم إرسال التسجيل الصوتي.");
-      } catch(err) { toast("لم يتم إرسال التسجيل: "+prettyError(err)); }
+      stream.getTracks().forEach(t => t.stop());
+      $("voiceRecordBtn").classList.remove("recording");
+      $("voiceRecordBtn").textContent = "🎙";
+      const blob = new Blob(recordChunks,{type:recorder?.mimeType || mimeType || "audio/webm"});
+      recordChunks = [];
+      if (!blob.size) return;
+      if (blob.size > 10*1024*1024) return toast("التسجيل كبير جدًا.");
+      const duration = Math.max(1,Math.round((Date.now()-recordStartedAt)/1000));
+      const file = new File([blob],`voice-${Date.now()}.${blob.type.includes("mp4")?"m4a":blob.type.includes("ogg")?"ogg":"webm"}`,{type:blob.type});
+      await uploadChatFile(file,"audio",{duration});
     };
-    recorder.start(); $("voiceRecordBtn").classList.add("recording"); $("voiceRecordBtn").textContent="■";
-    toast("جاري التسجيل... اضغط ■ للإرسال (حد أقصى 60 ثانية).");
-    recordTimer=setTimeout(()=>{ if(recorder?.state==="recording") recorder.stop(); },60000);
-  } catch(err) { toast(err.name==="NotAllowedError" ? "اسمح للموقع باستخدام الميكروفون من إعدادات المتصفح." : "تعذر تشغيل الميكروفون."); }
+    recorder.start();
+    $("voiceRecordBtn").classList.add("recording");
+    $("voiceRecordBtn").textContent = "■";
+    toast("جاري التسجيل... اضغط ■ للإرسال (60 ثانية كحد أقصى).");
+    recordTimer = setTimeout(()=>{ if(recorder?.state==="recording") recorder.stop(); },60000);
+  } catch (err) {
+    toast(err.name==="NotAllowedError" ? "اسمح للموقع باستخدام الميكروفون من إعدادات المتصفح." : "تعذر تشغيل الميكروفون. تأكد من HTTPS وصلاحية الميكروفون.");
+  }
 }
-$("voiceRecordBtn").addEventListener("click", toggleVoiceRecording);
-
+$("voiceRecordBtn").addEventListener("click",toggleVoiceRecording);
+$("imageFileBtn").addEventListener("click",()=>$("imageInput").click());
+$("fileBtn").addEventListener("click",()=>$("fileInput").click());
+$("imageInput").addEventListener("change",async e=>{ const f=e.target.files?.[0]; if(f) await uploadChatFile(f,"image"); e.target.value=""; });
+$("fileInput").addEventListener("change",async e=>{ const f=e.target.files?.[0]; if(f) await uploadChatFile(f,"file"); e.target.value=""; });
 $("messageForm").addEventListener("submit", async e => {
   e.preventDefault();
   const text = $("messageInput").value.trim();
@@ -367,7 +449,7 @@ $("messageForm").addEventListener("submit", async e => {
   try {
     const msgRef = push(ref(db, `messages/${activeChatId}`));
     const now = Date.now();
-    await set(msgRef, { sender:me.uid, text, createdAt:now, status:"sent" });
+    await set(msgRef, { sender:me.uid, type:"text", text, createdAt:now });
     await update(ref(db, `chats/${activeChatId}`), { lastMessage:text.slice(0,90), updatedAt:now });
   } catch (err) {
     toast("لم يتم إرسال الرسالة: " + prettyError(err));
@@ -386,13 +468,7 @@ async function searchPeople() {
     const userSnap = await get(ref(db, `users/${uid}`));
     if (!userSnap.exists()) { $("peopleResults").innerHTML = '<div class="empty-state">الحساب غير متاح حاليًا.</div>'; return; }
     const person = { uid, ...userSnap.val() };
-    if (stopSearchedPresence) stopSearchedPresence();
-    $("peopleResults").innerHTML = `<div class="person-card"><div class="avatar">${safeText(initials(person.name))}</div><div class="person-info"><strong>${safeText(person.name)}</strong><small>@${safeText(person.username)}</small><small id="searchedPersonStatus">جارٍ معرفة الحالة...</small></div><button id="startChatBtn" class="primary">إرسال رسالة</button></div>`;
-    stopSearchedPresence = onValue(ref(db, `status/${uid}`), statusSnap => {
-      const online = statusSnap.val()?.state === "online";
-      const statusEl = $("searchedPersonStatus");
-      if (statusEl) { statusEl.textContent = online ? "● متصل الآن" : "○ غير متصل"; statusEl.classList.toggle("online", online); }
-    });
+    $("peopleResults").innerHTML = `<div class="person-card"><div class="avatar">${safeText(initials(person.name))}</div><div class="person-info"><strong>${safeText(person.name)}</strong><small>@${safeText(person.username)}</small></div><button id="startChatBtn" class="primary">إرسال رسالة</button></div>`;
     $("startChatBtn").onclick = async () => { try { await startDirectChat(person); } catch(err) { toast(prettyError(err)); } };
   } catch (err) { $("peopleResults").innerHTML = `<div class="empty-state">${safeText(prettyError(err))}</div>`; }
 }
@@ -431,9 +507,21 @@ $("profileBtn").onclick = () => {
 };
 $("modalClose").onclick = () => show($("modalLayer"),false);
 $("modalLayer").onclick = e => { if(e.target === $("modalLayer")) show($("modalLayer"),false); };
-$("logoutBtn").onclick = () => signOut(auth);
+$("logoutBtn").onclick = async () => {
+  try {
+    if (presenceConnectionRef) await remove(presenceConnectionRef);
+    if (me) await set(ref(db,`status/${me.uid}/lastChanged`),serverTimestamp());
+  } catch {}
+  await signOut(auth);
+};
 $("mobileMenu").onclick = () => $("sidebar").classList.add("open");
 $("mobileClose").onclick = () => $("sidebar").classList.remove("open");
 $("mobileSearch").onclick = () => { $("sidebar").classList.add("open"); $("globalSearch").focus(); };
 $("chatBack").onclick = () => switchView("home");
 $("emojiBtn").onclick = () => { $("messageInput").value += " 😊"; $("messageInput").focus(); };
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && activeChatId) {
+    markRead(activeChatId, latestMessages);
+  }
+});
